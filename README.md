@@ -80,7 +80,7 @@ Since Google's OAuth for "Installed Apps" does not allow arbitrary redirect URIs
         ```
     *   This script will open your browser to Google's OAuth consent screen.
     *   After you grant permission, Google will redirect back to a temporary local server run by the script.
-    *   The script will then print a Base64-encoded string containing your Google API credentials (including the refresh token) to your terminal. **Copy this entire string.**
+    *   The script will then print a Base64-encoded string containing your Google API credentials (including the refresh token and your Google Cloud Project ID) to your terminal. **Copy this entire string.**
 
 2.  **Register Credentials with the Worker:**
     *   Navigate to the worker's homepage (e.g., `http://localhost:8787`).
@@ -98,21 +98,23 @@ This worker includes a simple web interface for interacting with the API.
 
 ### Making API Requests
 
-To use the proxy, make a `POST` request to the `/api/v1/models/gemini-pro:generateContent` endpoint with your API key as a query parameter.
+To use the proxy, make a `POST` request to the `/v1beta/models/<model>:<method>` endpoint with your API key as a query parameter. The `<model>` should be replaced with the actual model you want to use (e.g., `gemini-2.5-flash`), and the `<method>` can be `generateContent` or `streamGenerateContent`. This proxy is fully compatible with the official Google Gemini API, as documented at https://ai.google.dev/gemini-api/docs.
 
 **Example using `curl`:**
 
 ```bash
-curl -X POST "http://localhost:8787/api/v1/models/gemini-pro:generateContent?key=YOUR_API_KEY" \
+curl -X POST "http://localhost:8787/v1beta/models/gemini-2.5-flash:generateContent?key=YOUR_API_KEY" \
      -H "Content-Type: application/json" \
      -d '{
            "contents": [{
-             "parts":[{"text": "Explain how the internet works."}]
+             "role": "user",
+             "parts":[{"text": "Tell me a joke."}]
            }]
          }'
 ```
 
 Replace `YOUR_API_KEY` with the key you received after the authorization process.
+
 
 ### Revoking Authorization
 

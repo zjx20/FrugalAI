@@ -3,6 +3,7 @@ import http from 'http';
 import url from 'url';
 import open from 'open';
 import net from 'net';
+import { setupUser } from '@google/gemini-cli-core/dist/src/code_assist/setup.js';
 
 // These are the public credentials for an "Installed App".
 // It's safe for them to be in this script.
@@ -74,14 +75,22 @@ async function main() {
                      return;
                 }
 
-                const credentialsString = JSON.stringify(tokens);
+                // Use setupUser from @google/gemini-cli-core to get the projectId
+                const projectId = await setupUser(client);
+
+                const credentialsData = {
+                    tokens: tokens,
+                    projectId: projectId,
+                };
+
+                const credentialsString = JSON.stringify(credentialsData);
                 const encodedCredentials = Buffer.from(credentialsString).toString('base64');
 
                 res.end('Authorization successful! You can close this tab now.');
                 server.close(); // Close on success
 
-                console.log('\nAuthorization successful!');
-                console.log('\n--------------------------------------------------------------------------');
+                console.log('Authorization successful!');
+                console.log('--------------------------------------------------------------------------');
                 console.log('Copy the following string and paste it into the registration page:');
                 console.log(`\n${encodedCredentials}\n`);
                 console.log('--------------------------------------------------------------------------');

@@ -13,6 +13,22 @@ The project now supports a two-step OAuth2 authorization and registration proces
 -   **Credential Management:** Stores and manages OAuth tokens and API key mappings in Cloudflare KV.
 -   **Revocation:** Provides an endpoint (`/revoke`) to invalidate API keys and revoke Google tokens.
 
+## Agent Guidelines
+
+This section outlines the operational guidelines for the Gemini CLI Agent when interacting with this project.
+
+1.  **Plan Before Action:** Before making any code modifications, always provide a clear plan of the proposed changes to the user. Proceed with implementation only after receiving explicit confirmation from the user.
+2.  **Language Consistency:** Respond to the user in the language they used for their query. However, all code comments within the project must be written in English.
+
+## Development and Usage
+
+-   **API Proxy:** Proxies requests to the Google Gemini API.
+-   **OAuth2 Authorization (Local Script):** Users run a local Node.js script (`authorize.mjs`) to obtain Base64-encoded Google API credentials.
+-   **Credential Registration (Worker Endpoint):** Users paste the Base64-encoded credentials into the worker's web interface, which then registers them and issues a unique API key.
+-   **API Key Authentication:** All API requests to the worker require a valid API key.
+-   **Credential Management:** Stores and manages OAuth tokens and API key mappings in Cloudflare KV.
+-   **Revocation:** Provides an endpoint (`/revoke`) to invalidate API keys and revoke Google tokens.
+
 ## Development and Usage
 
 ### Prerequisites
@@ -58,14 +74,29 @@ npm run dev
     ```bash
     node authorize.mjs
     ```
-    Follow the prompts to authorize with Google and copy the Base64-encoded credentials string from your terminal.
+    Follow the prompts to authorize with Google and copy the Base64-encoded credentials string (including your Google Cloud Project ID) from your terminal.
 
 2.  **Register Credentials:**
     Navigate to the worker's homepage (e.g., `http://localhost:8787`). Paste the Base64-encoded credentials into the registration section and click "Register & Get API Key". Your new API key will be displayed and saved locally.
 
 ### Making API Requests
 
-Use your obtained API key in the `key` query parameter for requests to `/api/v1/models/gemini-pro:generateContent`.
+To use the proxy, make a `POST` request to the `/v1beta/models/<model>:<method>` endpoint with your API key as a query parameter. The `<model>` should be replaced with the actual model you want to use (e.g., `gemini-2.5-flash`), and the `<method>` can be `generateContent` or `streamGenerateContent`. This proxy is fully compatible with the official Google Gemini API, as documented at https://ai.google.dev/gemini-api/docs.
+
+**Example using `curl`:**
+
+```bash
+curl -X POST "http://localhost:8787/v1beta/models/gemini-2.5-flash:generateContent?key=YOUR_API_KEY" \
+     -H "Content-Type: application/json" \
+     -d '{
+           "contents": [{
+             "role": "user",
+             "parts":[{"text": "Tell me a joke."}]
+           }]
+         }'
+```
+
+Replace `YOUR_API_KEY` with the key you received after the authorization process.
 
 ### Revoking Authorization
 
