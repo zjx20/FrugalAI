@@ -1,44 +1,32 @@
 # Gemini Free API Proxy
 
-This project is a Cloudflare Worker that acts as a proxy to the Google Gemini API. It exposes a Google GenAI-style API and internally translates the requests to the Google Code Assist API format.
+This project is a Cloudflare Worker that acts as a proxy for the Google Gemini API. It exposes an interface compatible with the official Google GenAI API and internally translates requests to the Google Code Assist API format, enabling free access to Gemini models.
 
-It includes a complete OAuth2 flow to authorize access to Google services, storing the obtained credentials (access tokens, refresh tokens) securely in a Cloudflare KV namespace. Each user is issued a unique API key to access the service.
+The project includes a complete OAuth2 flow to authorize access to Google services, securely storing the obtained credentials (access tokens, refresh tokens) in a Cloudflare KV namespace. Each user is issued a unique API key to access the service.
 
-## Features
+## Deployment and Operation
 
--   **Gemini API Proxy:** Acts as a middleman to the Google Gemini API.
--   **Multi-User OAuth2 Integration:** Implements the server-side OAuth2 authorization code flow to obtain Google API credentials for multiple users.
--   **API Key Authentication:** Issues a unique, random API key to each user for secure access to the worker's endpoints.
--   **Secure Credential Storage:** Uses Cloudflare KV to store and manage OAuth tokens and API key mappings.
--   **Built with Hono:** Utilizes the Hono web framework for routing within the Cloudflare Worker.
--   **Ready to Deploy:** Configured for easy deployment to the Cloudflare global network.
+You can run this project either in a local development mode or by deploying it directly to Cloudflare. In either case, you will get an **Endpoint URL**, which is the access address for your service.
 
-## Prerequisites
+### 1. Prerequisites
 
 Before you begin, ensure you have the following:
 
--   [Node.js](https://nodejs.org/) (version 20.x or later recommended)
+-   [Node.js](https://nodejs.org/) (v20.x or later recommended)
 -   An active [Cloudflare account](https://dash.cloudflare.com/sign-up)
 -   A configured Cloudflare KV namespace
 
-## Installation
+### 2. Installation and Configuration
 
-1.  Clone the repository:
-    ```bash
-    git clone <repository-url>
-    cd gemini-free-api
-    ```
+First, clone the repository and install the dependencies:
 
-2.  Install the dependencies:
-    ```bash
-    npm install
-    ```
+```bash
+git clone <repository-url>
+cd gemini-free-api
+npm install
+```
 
-## Configuration
-
-### 1. Cloudflare KV Namespace
-
-You need to bind a KV namespace to this worker. Update your `wrangler.jsonc` file to include the KV namespace binding.
+Next, bind your KV namespace to this worker. Open the `wrangler.jsonc` file and add or modify the `kv_namespaces` configuration:
 
 ```jsonc
 // wrangler.jsonc
@@ -54,89 +42,102 @@ You need to bind a KV namespace to this worker. Update your `wrangler.jsonc` fil
 }
 ```
 
-Replace `your_kv_namespace_id` and `your_kv_namespace_preview_id` with the actual IDs from your Cloudflare dashboard. The `binding` must be `"KV"` as it's used in the code.
+Replace `your_kv_namespace_id` and `your_kv_namespace_preview_id` with the actual IDs from your Cloudflare dashboard.
 
-## Usage
+### 3. Running the Project
 
-### Running Locally
+**Local Development Mode:**
 
-To start the local development server, run:
+Run the following command to start the local development server:
 
 ```bash
 npm run dev
 ```
 
-This will start a server, typically on `http://localhost:8787`.
+After the server starts, your **Endpoint URL** will typically be `http://localhost:8787`.
 
-### Authorization and Registration Flow
+**Deploying to Cloudflare:**
 
-Since Google's OAuth for "Installed Apps" does not allow arbitrary redirect URIs, the authorization process is split into two steps:
-
-1.  **Local Authorization Script:**
-    *   **Before running, ensure you have installed all project dependencies by running `npm install` in the project root.**
-    *   Run the `authorize.mjs` script on your local machine using Node.js:
-        ```bash
-        node authorize.mjs
-        ```
-    *   This script will open your browser to Google's OAuth consent screen.
-    *   After you grant permission, Google will redirect back to a temporary local server run by the script.
-    *   The script will then print a Base64-encoded string containing your Google API credentials (including the refresh token and your Google Cloud Project ID) to your terminal. **Copy this entire string.**
-
-2.  **Register Credentials with the Worker:**
-    *   Navigate to the worker's homepage (e.g., `http://localhost:8787`).
-    *   In the "Register Credentials" section, paste the Base64-encoded string you copied from the terminal into the provided text area.
-    *   Click the "Register & Get API Key" button.
-    *   The worker will process your credentials, generate a unique API key for you, and display it in the "Your API Key" field. This API key will also be automatically saved to your browser's local storage.
-
-## Web Interface
-
-This worker includes a simple web interface for interacting with the API.
-
-1.  **Homepage:** Navigate to the root URL of your worker (e.g., `http://localhost:8787`) to access the chat interface.
-2.  **API Key:** Your API key will be automatically populated after successful registration. It will be stored in your browser's local storage for future use.
-3.  **Chat:** Once your API key is set, you can start chatting with the Gemini model.
-
-### Making API Requests
-
-To use the proxy, make a `POST` request to the `/v1beta/models/<model>:<method>` endpoint with your API key as a query parameter. The `<model>` should be replaced with the actual model you want to use (e.g., `gemini-2.5-flash`), and the `<method>` can be `generateContent` or `streamGenerateContent`. This proxy is fully compatible with the official Google Gemini API, as documented at https://ai.google.dev/gemini-api/docs.
-
-**Example using `curl`:**
-
-```bash
-curl -X POST "http://localhost:8787/v1beta/models/gemini-2.5-flash:generateContent?key=YOUR_API_KEY" \
-     -H "Content-Type: application/json" \
-     -d '{
-           "contents": [{
-             "role": "user",
-             "parts":[{"text": "Tell me a joke."}]
-           }]
-         }'
-```
-
-Replace `YOUR_API_KEY` with the key you received after the authorization process.
-
-
-### Revoking Authorization
-
-If you wish to invalidate your API key and remove your credentials from the service, you can make a `POST` request to the `/revoke` endpoint.
-
-**Example using `curl`:**
-
-```bash
-curl -X POST http://localhost:8787/revoke \
-     -H "Authorization: Bearer YOUR_API_KEY"
-```
-
-This will revoke your token with Google, delete your credentials from the KV store, and invalidate your API key.
-
-### Deployment
-
-
-
-To deploy the worker to your Cloudflare account, run:
+Run the following command to deploy the project to Cloudflare:
 
 ```bash
 npm run deploy
 ```
 
-This will publish the worker and make it available on your Cloudflare domain.
+Upon successful deployment, Cloudflare will provide you with a public **Endpoint URL** (e.g., `https://your-worker-name.your-subdomain.workers.dev`).
+
+## User Authorization Logic
+
+The core of this project is its user authorization system. You need to follow a simple process to obtain an API key before you can use the service.
+
+### 1. Authorize and Get an API Key
+
+In your project terminal, run the following command. Replace `<your_endpoint_url>` with the **Endpoint URL** you obtained in the previous step.
+
+```bash
+node authorize.mjs --endpoint=<your_endpoint_url>
+```
+
+> **Note:** The `--endpoint` parameter is **required**.
+
+This script will automatically perform the following actions:
+1.  Open a Google authorization page in your browser.
+2.  Prompt you to log in and grant the application permission to access your Google account information and Cloud Platform data.
+3.  After successful authorization, the script will capture the credentials and send a registration request to your endpoint.
+4.  Finally, your **API Key** will be printed directly to the terminal.
+
+Please store this API key securely, as it is required for all subsequent requests.
+
+### 2. Revoke Authorization
+
+If you wish to revoke your authorization and invalidate your API key, you can send a POST request to the `/revoke` endpoint.
+
+**Example `curl` command:**
+
+```bash
+curl -X POST <your_endpoint_url>/revoke \
+     -H "Authorization: Bearer YOUR_API_KEY"
+```
+
+Replace `YOUR_API_KEY` with your API key. This action will revoke the application's access token with Google and delete all your data from the KV store.
+
+## How to Use the Service
+
+Once you have your API key, you can use this proxy service in several ways.
+
+### 1. Test with `curl`
+
+You can use `curl` to call the API directly and test its connectivity.
+
+```bash
+curl -X POST "<your_endpoint_url>/v1beta/models/gemini-2.5-flash:generateContent?key=YOUR_API_KEY" \
+     -H "Content-Type: application/json" \
+     -d '{
+           "contents": [{
+             "parts":[{"text": "Hello, tell me about yourself."}]
+           }]
+         }'
+```
+
+Replace `<your_endpoint_url>` and `YOUR_API_KEY` with your actual information.
+
+### 2. Test via the Web Interface
+
+This project includes a simple web-based chat interface for quick testing.
+
+1.  Open your **Endpoint URL** (e.g., `http://localhost:8787`) in your browser.
+2.  In the "Enter Your API Key" input field, paste the API key you obtained.
+3.  Click the "Save Key" button. The key will be saved in your browser's local storage for future sessions.
+4.  You can now start chatting with the Gemini model directly in the chatbox.
+
+### 3. Use in Other Tools
+
+The API provided by this proxy is fully compatible with the official Google Gemini API. This allows you to integrate it with any third-party application or tool (e.g., IDE plugins, specialized AI clients) that allows you to configure a custom API endpoint or base URL.
+
+The primary benefit of this approach is significant cost savings. By routing API calls through this proxy, you can leverage the free tier of the underlying Google services. This allows you to bypass potentially expensive pay-per-use fees for the official Gemini API or avoid paid subscriptions for third-party software that integrates with it.
+
+To set this up, find the API settings in your tool of choice and configure the following:
+-   **API Endpoint / Base URL:** Your `<your_endpoint_url>`.
+-   **API Key:** The `YOUR_API_KEY` you obtained from the `authorize.mjs` script.
+
+Once configured, the tool will communicate with this proxy, allowing you to use its features powered by Gemini at no cost.

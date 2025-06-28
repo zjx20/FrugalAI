@@ -1,7 +1,8 @@
 import { Hono } from 'hono';
 import { OAuth2Client } from 'google-auth-library';
-import { CODE_ASSIST_ENDPOINT, CODE_ASSIST_API_VERSION } from '@google/gemini-cli-core/dist/src/code_assist/server';
 
+const CODE_ASSIST_ENDPOINT = 'https://cloudcode-pa.googleapis.com';
+const CODE_ASSIST_API_VERSION = 'v1internal';
 const OAUTH_CLIENT_ID = '681255809395-oo8ft2oprdrnp9e3aqf6av3hmdib135j.apps.googleusercontent.com';
 const OAUTH_CLIENT_SECRET = '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';
 

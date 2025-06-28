@@ -1,109 +1,52 @@
-# Gemini Free API
+# Project Context for Gemini Agent
 
-This project is a Cloudflare Worker that acts as a proxy to the Google Gemini API. It provides a Google GenAI-style API endpoint and translates requests to the Google Code Assist API.
+This document provides essential context about the "Gemini Free API Proxy" project for the Gemini CLI Agent. It outlines the project's architecture, functionality, and key workflows to guide the agent in understanding and modifying the codebase.
 
-The project now supports a two-step OAuth2 authorization and registration process, designed to work with Google's "Installed App" OAuth client type. Credentials (access tokens, refresh tokens) are stored in a Cloudflare KV namespace, and each user is issued a unique API key.
+## 1. Project Overview
 
-## Core Functionality
+This project is a Cloudflare Worker that acts as a proxy to the Google Gemini API. It exposes a public API endpoint that is compatible with the official Google GenAI API specification. Internally, it translates incoming requests to the format required by the Google Code Assist API, effectively enabling free access to Gemini models.
 
--   **API Proxy:** Proxies requests to the Google Gemini API.
--   **OAuth2 Authorization (Local Script):** Users run a local Node.js script (`authorize.mjs`) to obtain Base64-encoded Google API credentials.
--   **Credential Registration (Worker Endpoint):** Users paste the Base64-encoded credentials into the worker's web interface, which then registers them and issues a unique API key.
--   **API Key Authentication:** All API requests to the worker require a valid API key.
--   **Credential Management:** Stores and manages OAuth tokens and API key mappings in Cloudflare KV.
--   **Revocation:** Provides an endpoint (`/revoke`) to invalidate API keys and revoke Google tokens.
+The core of the project involves a user authorization flow that uses OAuth2 to obtain Google API credentials. These credentials are then securely stored in a Cloudflare KV namespace, and a unique API key is generated for each user to access the service.
 
-## Agent Guidelines
+## 2. Core Components
+
+-   **`src/index.ts`**: The main Cloudflare Worker script, built with Hono. It handles all API routing, including:
+    -   `/register`: An internal endpoint for the authorization script to register user credentials and generate an API key.
+    -   `/revoke`: An endpoint for users to revoke their authorization and delete their data.
+    -   `/v1beta/models/*`: The main proxy endpoint that forwards user requests to the Google API after validating the API key and refreshing OAuth tokens.
+-   **`authorize.mjs`**: A command-line Node.js script that guides the user through the Google OAuth2 flow. It requires an `--endpoint` parameter pointing to the running worker. Upon successful authorization, it communicates directly with the `/register` endpoint to obtain and display the final API key for the user.
+-   **`public/index.html`**: A simple, static web page that serves as a chat interface for testing the service. It requires the user to input their API key, which is then stored in the browser's local storage.
+-   **`wrangler.jsonc`**: The configuration file for the Cloudflare Worker, including the necessary KV namespace binding.
+
+## 3. Key Workflows
+
+### 3.1. Authorization and API Key Generation
+
+The process for a user to obtain an API key is as follows:
+
+1.  The user runs the Cloudflare Worker, either locally (`npm run dev`) or by deploying it (`npm run deploy`), to get a service **Endpoint URL**.
+2.  The user runs the authorization script from their terminal, providing the endpoint URL:
+    ```bash
+    node authorize.mjs --endpoint=<your_endpoint_url>
+    ```
+3.  The script opens a browser for the Google OAuth2 consent flow.
+4.  After the user grants permission, the script receives the authorization tokens.
+5.  The script then sends these tokens to the worker's `/register` endpoint.
+6.  The worker validates the tokens, generates a new unique API key, stores the user's data in KV, and returns the new API key to the script.
+7.  The script prints the API key to the user's console.
+
+### 3.2. API Request Flow
+
+1.  A user makes a request to the proxy endpoint (e.g., `/v1beta/models/gemini-2.5-flash:generateContent`), providing their API key in the `?key=` query parameter.
+2.  The worker retrieves the `userId` from KV using the API key.
+3.  It then retrieves the user's stored credentials (OAuth tokens) using the `userId`.
+4.  The worker refreshes the `access_token` if necessary.
+5.  Finally, it forwards the user's request, along with the valid `access_token`, to the internal Google Code Assist API.
+6.  The response is translated back to the standard Gemini API format and returned to the user.
+
+## 4. Agent Guidelines
 
 This section outlines the operational guidelines for the Gemini CLI Agent when interacting with this project.
 
 1.  **Plan Before Action:** Before making any code modifications, always provide a clear plan of the proposed changes to the user. Proceed with implementation only after receiving explicit confirmation from the user.
 2.  **Language Consistency:** Respond to the user in the language they used for their query. However, all code comments within the project must be written in English.
-
-## Development and Usage
-
--   **API Proxy:** Proxies requests to the Google Gemini API.
--   **OAuth2 Authorization (Local Script):** Users run a local Node.js script (`authorize.mjs`) to obtain Base64-encoded Google API credentials.
--   **Credential Registration (Worker Endpoint):** Users paste the Base64-encoded credentials into the worker's web interface, which then registers them and issues a unique API key.
--   **API Key Authentication:** All API requests to the worker require a valid API key.
--   **Credential Management:** Stores and manages OAuth tokens and API key mappings in Cloudflare KV.
--   **Revocation:** Provides an endpoint (`/revoke`) to invalidate API keys and revoke Google tokens.
-
-## Development and Usage
-
-### Prerequisites
-
--   Node.js and npm
--   A Cloudflare account with a KV namespace
-
-### Setup
-
-1.  **Install dependencies:**
-    ```bash
-    npm install
-    ```
-
-2.  **Configure Cloudflare KV Namespace:**
-    Update your `wrangler.jsonc` file to include the KV namespace binding. The `binding` must be `"KV"`.
-
-    ```jsonc
-    // wrangler.jsonc
-    {
-      // ... other configurations
-      "kv_namespaces": [
-        {
-          "binding": "KV",
-          "id": "your_kv_namespace_id",
-          "preview_id": "your_kv_namespace_preview_id"
-        }
-      ]
-    }
-    ```
-
-### Running Locally
-
-```bash
-npm run dev
-```
-
-### Authorization and Registration Flow
-
-1.  **Local Authorization:**
-    *   **Before running, ensure you have installed all project dependencies by running `npm install` in the project root.**
-    Run the `authorize.mjs` script:
-    ```bash
-    node authorize.mjs
-    ```
-    Follow the prompts to authorize with Google and copy the Base64-encoded credentials string (including your Google Cloud Project ID) from your terminal.
-
-2.  **Register Credentials:**
-    Navigate to the worker's homepage (e.g., `http://localhost:8787`). Paste the Base64-encoded credentials into the registration section and click "Register & Get API Key". Your new API key will be displayed and saved locally.
-
-### Making API Requests
-
-To use the proxy, make a `POST` request to the `/v1beta/models/<model>:<method>` endpoint with your API key as a query parameter. The `<model>` should be replaced with the actual model you want to use (e.g., `gemini-2.5-flash`), and the `<method>` can be `generateContent` or `streamGenerateContent`. This proxy is fully compatible with the official Google Gemini API, as documented at https://ai.google.dev/gemini-api/docs.
-
-**Example using `curl`:**
-
-```bash
-curl -X POST "http://localhost:8787/v1beta/models/gemini-2.5-flash:generateContent?key=YOUR_API_KEY" \
-     -H "Content-Type: application/json" \
-     -d '{
-           "contents": [{
-             "role": "user",
-             "parts":[{"text": "Tell me a joke."}]
-           }]
-         }'
-```
-
-Replace `YOUR_API_KEY` with the key you received after the authorization process.
-
-### Revoking Authorization
-
-Make a `POST` request to `/revoke` with your API key in the `Authorization: Bearer` header.
-
-### Deployment
-
-```bash
-npm run deploy
-```

@@ -3,7 +3,12 @@ import http from 'http';
 import url from 'url';
 import open from 'open';
 import net from 'net';
+import fs from 'fs/promises';
 import { setupUser } from '@google/gemini-cli-core/dist/src/code_assist/setup.js';
+
+async function getProjectId(client) {
+    return await setupUser(client);
+}
 
 // These are the public credentials for an "Installed App".
 // It's safe for them to be in this script.
@@ -14,6 +19,42 @@ const OAUTH_SCOPE = [
     'https://www.googleapis.com/auth/userinfo.email',
     'https://www.googleapis.com/auth/userinfo.profile',
 ];
+
+async function register(endpoint, encodedCredentials) {
+    const registerUrl = new url.URL('/register', endpoint);
+    const postData = JSON.stringify({ credentials: encodedCredentials });
+
+    const options = {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'Content-Length': Buffer.byteLength(postData),
+        },
+    };
+
+    return new Promise((resolve, reject) => {
+        const req = http.request(registerUrl, options, (res) => {
+            let data = '';
+            res.on('data', (chunk) => {
+                data += chunk;
+            });
+            res.on('end', () => {
+                if (res.statusCode >= 200 && res.statusCode < 300) {
+                    resolve(JSON.parse(data));
+                } else {
+                    reject(new Error(`Request failed with status code ${res.statusCode}: ${data}`));
+                }
+            });
+        });
+
+        req.on('error', (e) => {
+            reject(e);
+        });
+
+        req.write(postData);
+        req.end();
+    });
+}
 
 async function getAvailablePort() {
     return new Promise((resolve, reject) => {
@@ -30,82 +71,129 @@ async function getAvailablePort() {
 }
 
 async function main() {
-    const port = await getAvailablePort();
-    const redirectUri = `http://localhost:${port}/oauth2callback`;
+    const args = process.argv.slice(2);
+    const endpointArg = args.find(arg => arg.startsWith('--endpoint='));
+    const credentialsFileArg = args.find(arg => arg.startsWith('--credentials-file='));
 
-    const client = new OAuth2Client({
-        clientId: OAUTH_CLIENT_ID,
-        clientSecret: OAUTH_CLIENT_SECRET,
-        redirectUri: redirectUri,
-    });
+    const endpoint = endpointArg ? endpointArg.split('=')[1] : null;
+    const credentialsFile = credentialsFileArg ? credentialsFileArg.split('=')[1] : null;
 
-    const authUrl = client.generateAuthUrl({
-        access_type: 'offline',
-        scope: OAUTH_SCOPE,
-        prompt: 'consent' // Force getting a refresh token every time
-    });
+    if (!endpoint) {
+        console.error('Error: The --endpoint parameter is required.');
+        console.error('Usage: node authorize.mjs --endpoint=<your_server_url>');
+        process.exit(1);
+    }
+    let encodedCredentials;
 
-    console.log('--------------------------------------------------------------------------');
-    console.log('Please open the following URL in your browser to authorize this application:');
-    console.log(`\n${authUrl}\n`);
-    console.log('Waiting for authorization...');
-    console.log('--------------------------------------------------------------------------');
+    if (credentialsFile) {
+        console.log(`Using credentials from ${credentialsFile}`);
+        const credentialsString = await fs.readFile(credentialsFile, 'utf-8');
+        const credentials = JSON.parse(credentialsString);
 
-    open(authUrl);
+        const client = new OAuth2Client({
+            clientId: OAUTH_CLIENT_ID,
+            clientSecret: OAUTH_CLIENT_SECRET,
+        });
+        client.setCredentials(credentials);
 
-    const server = http.createServer(async (req, res) => {
-        // Only process the /oauth2callback path
-        if (req.url.startsWith('/oauth2callback')) {
-            try {
-                const qs = new url.URL(req.url, `http://localhost:${port}`).searchParams;
-                const code = qs.get('code');
+        const projectId = await getProjectId(client);
+        const credentialsData = {
+            tokens: credentials,
+            projectId: projectId,
+        };
+        encodedCredentials = Buffer.from(JSON.stringify(credentialsData)).toString('base64');
+    } else {
+        encodedCredentials = await getCredentialsFromAuthFlow();
+    }
 
-                if (!code) {
-                    res.end('Authorization failed: No code received.');
-                    server.close(); // Close on error
-                    return;
+    try {
+        console.log(`Registering with endpoint: ${endpoint}`);
+        const result = await register(endpoint, encodedCredentials);
+        console.log('--------------------------------------------------------------------------');
+        console.log('API Key obtained successfully:');
+        console.log(`\n${result.apiKey}\n`);
+        console.log('You can now use this API key to access the service.');
+        console.log('--------------------------------------------------------------------------');
+    } catch (error) {
+        console.error('Failed to register and get API key:', error.message);
+    }
+}
+
+async function getCredentialsFromAuthFlow() {
+    return new Promise(async (resolve, reject) => {
+        const port = await getAvailablePort();
+        const redirectUri = `http://localhost:${port}/oauth2callback`;
+
+        const client = new OAuth2Client({
+            clientId: OAUTH_CLIENT_ID,
+            clientSecret: OAUTH_CLIENT_SECRET,
+            redirectUri: redirectUri,
+        });
+
+        const authUrl = client.generateAuthUrl({
+            access_type: 'offline',
+            scope: OAUTH_SCOPE,
+            prompt: 'consent' // Force getting a refresh token every time
+        });
+
+        console.log('--------------------------------------------------------------------------');
+        console.log('Please open the following URL in your browser to authorize this application:');
+        console.log(`\n${authUrl}\n`);
+        console.log('Waiting for authorization...');
+        console.log('--------------------------------------------------------------------------');
+
+        open(authUrl);
+
+        const server = http.createServer(async (req, res) => {
+            if (req.url.startsWith('/oauth2callback')) {
+                try {
+                    const qs = new url.URL(req.url, `http://localhost:${port}`).searchParams;
+                    const code = qs.get('code');
+
+                    if (!code) {
+                        res.end('Authorization failed: No code received.');
+                        server.close();
+                        reject(new Error('No code received.'));
+                        return;
+                    }
+
+                    const { tokens } = await client.getToken(code);
+                    client.setCredentials(tokens);
+
+                    if (!tokens.refresh_token) {
+                        res.end('Authorization failed. A refresh token is required. Please try again.');
+                        server.close();
+                        reject(new Error('A refresh token is required.'));
+                        return;
+                    }
+
+                    const projectId = await getProjectId(client);
+
+                    const credentialsData = {
+                        tokens: tokens,
+                        projectId: projectId,
+                    };
+
+                    const credentialsString = JSON.stringify(credentialsData);
+                    const encodedCredentials = Buffer.from(credentialsString).toString('base64');
+
+                    res.end('Authorization successful! You can close this tab now.');
+                    server.close();
+
+                    console.log('Authorization successful!');
+                    resolve(encodedCredentials);
+
+                } catch (e) {
+                    res.end(`Authorization failed: ${e.message}`);
+                    server.close();
+                    reject(e);
                 }
-
-                const { tokens } = await client.getToken(code);
-                client.setCredentials(tokens);
-
-                if (!tokens.refresh_token) {
-                     res.end('Authorization failed. A refresh token is required. Please try again.');
-                     server.close(); // Close on error
-                     return;
-                }
-
-                // Use setupUser from @google/gemini-cli-core to get the projectId
-                const projectId = await setupUser(client);
-
-                const credentialsData = {
-                    tokens: tokens,
-                    projectId: projectId,
-                };
-
-                const credentialsString = JSON.stringify(credentialsData);
-                const encodedCredentials = Buffer.from(credentialsString).toString('base64');
-
-                res.end('Authorization successful! You can close this tab now.');
-                server.close(); // Close on success
-
-                console.log('Authorization successful!');
-                console.log('--------------------------------------------------------------------------');
-                console.log('Copy the following string and paste it into the registration page:');
-                console.log(`\n${encodedCredentials}\n`);
-                console.log('--------------------------------------------------------------------------');
-
-            } catch (e) {
-                res.end(`Authorization failed: ${e.message}`);
-                server.close(); // Close on error
-                console.error(e);
+            } else {
+                res.writeHead(200, { 'Content-Type': 'text/plain' });
+                res.end('OK');
             }
-        } else {
-            // Ignore other requests like favicon.ico
-            res.writeHead(200, { 'Content-Type': 'text/plain' });
-            res.end('OK');
-        }
-    }).listen(port);
+        }).listen(port);
+    });
 }
 
 main().catch(console.error);
