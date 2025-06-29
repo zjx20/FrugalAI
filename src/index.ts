@@ -6,8 +6,31 @@ const CODE_ASSIST_API_VERSION = 'v1internal';
 const OAUTH_CLIENT_ID = '681255809395-oo8ft2oprdrnp9e3aqf6av3hmdib135j.apps.googleusercontent.com';
 const OAUTH_CLIENT_SECRET = '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';
 
+const THROTTLE_DURATION_MS = 15 * 60 * 1000; // 15 minutes
+const FLEET_KEY_PREFIX = 'fleet-';
+
 export interface Env {
 	KV: KVNamespace;
+}
+
+// Define interfaces for better type safety
+interface UserData {
+	credentials: any; // OAuth2ClientCredentials
+	apiKey: string;
+	projectId: string;
+	permanentlyFailed?: boolean;
+}
+
+interface FleetMember {
+	userId: string;
+	credentials: any; // OAuth2ClientCredentials
+	projectId: string;
+	permanentlyFailed?: boolean;
+}
+
+interface FleetData {
+	members: FleetMember[];
+	throttled: { [userId: string]: number }; // userId -> throttle expiration timestamp
 }
 
 const app = new Hono<{ Bindings: Env }>();
@@ -72,45 +95,235 @@ app.post('/revoke', async (c) => {
 		return c.json({ error: 'API key is missing from Authorization header' }, 401);
 	}
 
-	const userId = await c.env.KV.get(`apikey:${apiKey}`);
-	if (!userId) {
-		return c.json({ error: 'Invalid API key' }, 401);
-	}
+	// Check if it's a fleet key
+	if (apiKey.startsWith(FLEET_KEY_PREFIX)) {
+		const fleetDataString = await c.env.KV.get(`fleet:${apiKey}`);
+		if (!fleetDataString) {
+			return c.json({ error: 'Invalid Fleet API key' }, 401);
+		}
+		const fleetData: FleetData = JSON.parse(fleetDataString);
 
-	const userDataString = await c.env.KV.get(userId);
-	if (!userDataString) {
-		await c.env.KV.delete(`apikey:${apiKey}`);
-		return c.json({ error: 'Invalid API key, user data not found' }, 401);
-	}
+		try {
+			const revokePromises = fleetData.members.map(async (member) => {
+				const client = new OAuth2Client({
+					clientId: OAUTH_CLIENT_ID,
+					clientSecret: OAUTH_CLIENT_SECRET,
+				});
+				client.setCredentials(member.credentials);
 
-	try {
-		const { credentials } = JSON.parse(userDataString);
-		const client = new OAuth2Client({
-			clientId: OAUTH_CLIENT_ID,
-			clientSecret: OAUTH_CLIENT_SECRET,
-		});
-		client.setCredentials(credentials);
+				if (member.credentials.refresh_token) {
+					await client.revokeToken(member.credentials.refresh_token);
+				} else if (member.credentials.access_token) {
+					await client.revokeToken(member.credentials.access_token);
+				}
+			});
+			await Promise.all(revokePromises);
 
-		if (credentials.refresh_token) {
-			await client.revokeToken(credentials.refresh_token);
-		} else if (credentials.access_token) {
-			await client.revokeToken(credentials.access_token);
+			await c.env.KV.delete(`fleet:${apiKey}`);
+			return c.json({ message: 'Fleet authorization revoked successfully.' });
+
+		} catch (e: any) {
+			console.error('Fleet revocation failed:', e);
+			// Even if revocation fails, delete KV entries to prevent invalid keys from lingering
+			await c.env.KV.delete(`fleet:${apiKey}`);
+			return c.json({ error: 'Fleet revocation failed.', details: e.message }, 500);
+		}
+	} else {
+		// Existing individual API key revocation logic
+		const userId = await c.env.KV.get(`apikey:${apiKey}`);
+		if (!userId) {
+			return c.json({ error: 'Invalid API key' }, 401);
 		}
 
-		await Promise.all([
-			c.env.KV.delete(userId),
-			c.env.KV.delete(`apikey:${apiKey}`)
-		]);
+		const userDataString = await c.env.KV.get(userId);
+		if (!userDataString) {
+			await c.env.KV.delete(`apikey:${apiKey}`);
+			return c.json({ error: 'Invalid API key, user data not found' }, 401);
+		}
 
-		return c.json({ message: 'Authorization revoked successfully.' });
+		try {
+			const { credentials } = JSON.parse(userDataString);
+			const client = new OAuth2Client({
+				clientId: OAUTH_CLIENT_ID,
+				clientSecret: OAUTH_CLIENT_SECRET,
+			});
+			client.setCredentials(credentials);
+
+			if (credentials.refresh_token) {
+				await client.revokeToken(credentials.refresh_token);
+			} else if (credentials.access_token) {
+				await client.revokeToken(credentials.access_token);
+			}
+
+			await Promise.all([
+				c.env.KV.delete(userId),
+				c.env.KV.delete(`apikey:${apiKey}`)
+			]);
+
+			return c.json({ message: 'Authorization revoked successfully.' });
+
+		} catch (e: any) {
+			console.error('Revocation failed:', e);
+			await Promise.all([
+				c.env.KV.delete(userId),
+				c.env.KV.delete(`apikey:${apiKey}`)
+			]);
+			return c.json({ error: 'Revocation failed.', details: e.message }, 500);
+		}
+	}
+});
+
+// Helper function to process credentials and get userId, credentials, projectId
+async function processCredentials(encodedCredentials: string): Promise<{ userId: string, credentials: any, projectId: string }> {
+	const credentialsDataString = Buffer.from(encodedCredentials, 'base64').toString('utf-8');
+	const { tokens, projectId } = JSON.parse(credentialsDataString);
+
+	if (!projectId) {
+		throw new Error('Project ID is missing from credentials data.');
+	}
+
+	const client = new OAuth2Client();
+	client.setCredentials(tokens);
+
+	const tokenInfo = await client.getTokenInfo(tokens.access_token);
+	const userId = tokenInfo.sub;
+
+	if (!userId) {
+		throw new Error('Could not retrieve user ID from token.');
+	}
+	return { userId, credentials: tokens, projectId };
+}
+
+app.post('/fleet/register', async (c) => {
+	try {
+		const { credentials: encodedCredentials } = await c.req.json();
+		if (!encodedCredentials) {
+			return c.json({ error: 'Credentials are required.' }, 400);
+		}
+
+		const newFleetApiKey = FLEET_KEY_PREFIX + crypto.randomUUID();
+		const members: FleetMember[] = [];
+		const throttled: { [userId: string]: number } = {};
+
+		// Process captain credentials
+		const captainInfo = await processCredentials(encodedCredentials);
+		members.push({
+			userId: captainInfo.userId,
+			credentials: captainInfo.credentials,
+			projectId: captainInfo.projectId,
+		});
+
+		const fleetData: FleetData = { members, throttled };
+
+		await c.env.KV.put(`fleet:${newFleetApiKey}`, JSON.stringify(fleetData));
+
+		return c.json({ fleetApiKey: newFleetApiKey });
 
 	} catch (e: any) {
-		console.error('Revocation failed:', e);
-		await Promise.all([
-			c.env.KV.delete(userId),
-			c.env.KV.delete(`apikey:${apiKey}`)
-		]);
-		return c.json({ error: 'Revocation failed.', details: e.message }, 500);
+		console.error(e);
+		return c.json({ error: 'Fleet registration failed.', details: e.message }, 500);
+	}
+});
+
+app.post('/fleet/add', async (c) => {
+	try {
+		const authHeader = c.req.header('Authorization');
+		const fleetApiKey = authHeader?.split(' ')[1];
+
+		if (!fleetApiKey || !fleetApiKey.startsWith(FLEET_KEY_PREFIX)) {
+			return c.json({ error: 'Valid Fleet API key is required in Authorization header.' }, 401);
+		}
+
+		const { credentials: encodedNewMemberCredentials } = await c.req.json();
+		if (!encodedNewMemberCredentials) {
+			return c.json({ error: 'Encoded credentials for new member are required.' }, 400);
+		}
+
+		const fleetDataString = await c.env.KV.get(`fleet:${fleetApiKey}`);
+		if (!fleetDataString) {
+			return c.json({ error: 'Fleet not found or invalid Fleet API key.' }, 404);
+		}
+		const fleetData: FleetData = JSON.parse(fleetDataString);
+
+		const newMemberInfo = await processCredentials(encodedNewMemberCredentials);
+
+		// Check if member already exists in the fleet
+		if (fleetData.members.some(m => m.userId === newMemberInfo.userId)) {
+			return c.json({ message: 'Member already exists in this fleet.' }, 200);
+		}
+
+		fleetData.members.push({
+			userId: newMemberInfo.userId,
+			credentials: newMemberInfo.credentials,
+			projectId: newMemberInfo.projectId,
+		});
+
+		await c.env.KV.put(`fleet:${fleetApiKey}`, JSON.stringify(fleetData));
+
+		return c.json({ message: 'Member added successfully.' });
+
+	} catch (e: any) {
+		console.error(e);
+		return c.json({ error: 'Failed to add member to fleet.', details: e.message }, 500);
+	}
+});
+
+app.post('/fleet/remove', async (c) => {
+	try {
+		const authHeader = c.req.header('Authorization');
+		const fleetApiKey = authHeader?.split(' ')[1];
+
+		if (!fleetApiKey || !fleetApiKey.startsWith(FLEET_KEY_PREFIX)) {
+			return c.json({ error: 'Valid Fleet API key is required in Authorization header.' }, 401);
+		}
+
+		const { userId: memberUserIdToRemove } = await c.req.json();
+		if (!memberUserIdToRemove) {
+			return c.json({ error: 'Member userId to remove is required.' }, 400);
+		}
+
+		const fleetDataString = await c.env.KV.get(`fleet:${fleetApiKey}`);
+		if (!fleetDataString) {
+			return c.json({ error: 'Fleet not found or invalid Fleet API key.' }, 404);
+		}
+		let fleetData: FleetData = JSON.parse(fleetDataString);
+
+		const memberToRemove = fleetData.members.find(m => m.userId === memberUserIdToRemove);
+		if (!memberToRemove) {
+			return c.json({ message: 'Member not found in this fleet.' }, 200);
+		}
+
+		// Revoke token for the member being removed
+		try {
+			const client = new OAuth2Client({
+				clientId: OAUTH_CLIENT_ID,
+				clientSecret: OAUTH_CLIENT_SECRET,
+			});
+			client.setCredentials(memberToRemove.credentials);
+
+			if (memberToRemove.credentials.refresh_token) {
+				await client.revokeToken(memberToRemove.credentials.refresh_token);
+			} else if (memberToRemove.credentials.access_token) {
+				await client.revokeToken(memberToRemove.credentials.access_token);
+			}
+			console.log(`Successfully revoked token for member ${memberUserIdToRemove}`);
+		} catch (e: any) {
+			console.error(`Failed to revoke token for member ${memberUserIdToRemove}:`, e);
+			// Continue with removal even if token revocation fails
+		}
+
+		fleetData.members = fleetData.members.filter(m => m.userId !== memberUserIdToRemove);
+
+		// Also remove from throttled list if present
+		delete fleetData.throttled[memberUserIdToRemove];
+
+		await c.env.KV.put(`fleet:${fleetApiKey}`, JSON.stringify(fleetData));
+
+		return c.json({ message: 'Member removed successfully.' });
+
+	} catch (e: any) {
+		console.error(e);
+		return c.json({ error: 'Failed to remove member from fleet.', details: e.message }, 500);
 	}
 });
 
@@ -194,6 +407,60 @@ class SseUnwrapTransformer implements Transformer<Uint8Array, Uint8Array> {
 	}
 }
 
+// Helper function to forward requests to the Google API
+async function forwardRequest(c: any, credentials: any, projectId: string, model: string, method: string) {
+	const client = new OAuth2Client({
+		clientId: OAUTH_CLIENT_ID,
+		clientSecret: OAUTH_CLIENT_SECRET,
+	});
+	client.setCredentials(credentials);
+
+	try {
+		await client.getAccessToken(); // Refreshes the token if needed
+	} catch (e: any) {
+		if (e.response?.data?.error === 'invalid_grant') {
+			console.error(`Permanent failure for a credential (invalid_grant): ${e.message}`);
+			return { permanentlyFailed: true };
+		}
+		// For other errors during token refresh, re-throw them to be handled as temporary failures
+		throw e;
+	}
+
+	const refreshedCredentials = client.credentials;
+
+	const version = process.env.CLI_VERSION || process.version;
+	const userAgent = `GeminiCLI/${version} (${process.platform}; ${process.arch})`;
+
+	const requestBody = await c.req.json();
+	const body = {
+		model: model,
+		project: projectId,
+		request: requestBody,
+	};
+
+	const headers = new Headers();
+	headers.append('Content-Type', 'application/json');
+	headers.append('User-Agent', userAgent);
+	headers.append('Authorization', `Bearer ${refreshedCredentials.access_token}`);
+
+	const url = new URL(`${CODE_ASSIST_ENDPOINT}/${CODE_ASSIST_API_VERSION}:${method}`);
+	const queries = c.req.queries();
+	for (const k in queries) {
+		for (const v of queries[k]) {
+			url.searchParams.append(k, v);
+		}
+	}
+	url.searchParams.delete('key');
+
+	const upstreamResponse = await fetch(url, {
+		method: c.req.method,
+		headers: headers,
+		body: JSON.stringify(body),
+	});
+
+	return { response: upstreamResponse, refreshedCredentials, permanentlyFailed: false };
+}
+
 app.post('/v1beta/models/:modelAndMethod{[a-zA-Z0-9.-]+:[a-zA-Z]+}', async (c) => {
 	const apiKey = c.req.query('key') || c.req.header('x-goog-api-key');
 	if (!apiKey) {
@@ -202,136 +469,170 @@ app.post('/v1beta/models/:modelAndMethod{[a-zA-Z0-9.-]+:[a-zA-Z]+}', async (c) =
 
 	const modelAndMethod = c.req.param('modelAndMethod');
 	const [model, method] = modelAndMethod.split(':');
-	// if (!['generateContent', 'streamGenerateContent'].includes(method)) {
-	// 	return c.json({ error: `Invalid method "${method}"` }, 400);
-	// }
 	console.log(`model: ${model}, method: ${method}`);
 
-	const userId = await c.env.KV.get(`apikey:${apiKey}`);
-	if (!userId) {
-		return c.json({ error: 'Invalid API key' }, 401);
-	}
-
-	const userDataString = await c.env.KV.get(userId);
-	if (!userDataString) {
-		return c.json({ error: 'Could not find credentials for user' }, 500);
-	}
-
-	const { credentials, projectId } = JSON.parse(userDataString);
-	const originalAccessToken = credentials.access_token;
-
-	const client = new OAuth2Client({
-		clientId: OAUTH_CLIENT_ID, // Still needed for token refresh
-		clientSecret: OAUTH_CLIENT_SECRET, // Still needed for token refresh
-	});
-	client.setCredentials(credentials);
-
-	// This will get a valid token, refreshing it only if it's expired or about to expire.
-	await client.getAccessToken();
-	const refreshedCredentials = client.credentials;
-
-	// If the access token was refreshed, update it in the KV store for subsequent requests.
-	// We use waitUntil to avoid blocking the response to the user.
-	if (refreshedCredentials.access_token !== originalAccessToken) {
-		const updatedUserData = { ...JSON.parse(userDataString), credentials: refreshedCredentials };
-		c.executionCtx.waitUntil(c.env.KV.put(userId, JSON.stringify(updatedUserData)));
-	}
-
-	const version = process.env.CLI_VERSION || process.version;
-	const userAgent = `GeminiCLI/${version} (${process.platform}; ${process.arch})`;
-
 	try {
-		const requestBody = await c.req.json();
-		const body = {
-			model: model,
-			project: projectId,
-			request: requestBody,
-		}
-		const headers = new Headers();
-		headers.append('Content-Type', 'application/json');
-		headers.append('User-Agent', userAgent);
-		headers.append('Authorization', `Bearer ${refreshedCredentials.access_token}`);
-
-		const url = new URL(`${CODE_ASSIST_ENDPOINT}/${CODE_ASSIST_API_VERSION}:${method}`);
-		const queries = c.req.queries();
-		for (const k in queries) {
-			for (const v of queries[k]) {
-				url.searchParams.append(k, v);
+		// Handle Fleet API Key
+		if (apiKey.startsWith(FLEET_KEY_PREFIX)) {
+			const fleetDataString = await c.env.KV.get(`fleet:${apiKey}`);
+			if (!fleetDataString) {
+				return c.json({ error: 'Invalid Fleet API key' }, 401);
 			}
-		}
-		// Remove our API key from the query params
-		url.searchParams.delete('key');
+			let fleetData: FleetData = JSON.parse(fleetDataString);
+			const now = Date.now();
+			let kvNeedsUpdate = false;
 
-		const sse = (url.searchParams.get('alt') === 'sse');
-		if (!sse) {
-			const resp = await fetch(url, {
-				method: c.req.method,
-				headers: headers,
-				body: JSON.stringify(body),
-			});
-			if (!resp.ok) {
-				return resp;
-			}
-			let respObj: any = await resp.json();
-
-			// The response from the Code Assist API wraps the actual Gemini response.
-			// We need to unwrap it here to match the standard Gemini API format.
-			if (Array.isArray(respObj)) {
-				// It's an array of responses, likely from a streaming-like call.
-				// We extract the 'response' object from each element.
-				const unwrapped = [];
-				for (const obj of respObj) {
-					if (obj && obj.response) {
-						unwrapped.push(obj.response);
-					}
+			// Lazily update throttled members in memory
+			const activeThrottled: { [userId: string]: number } = {};
+			for (const userId in fleetData.throttled) {
+				if (fleetData.throttled[userId] > now) {
+					activeThrottled[userId] = fleetData.throttled[userId];
 				}
-				respObj = unwrapped;
-			} else if (respObj && typeof respObj === 'object' && respObj.response) {
-				// It's a single response object.
-				respObj = respObj.response;
 			}
-			return c.json(respObj);
+			// Only mark for KV update if something else changes.
+			// This cleanup is lazy.
+			fleetData.throttled = activeThrottled;
+
+			const availableMembers = fleetData.members.filter(m =>
+				!m.permanentlyFailed &&
+				(!fleetData.throttled[m.userId] || fleetData.throttled[m.userId] <= now)
+			);
+
+			if (availableMembers.length === 0) {
+				const permanentlyFailedUserIds = fleetData.members
+					.filter(m => m.permanentlyFailed)
+					.map(m => m.userId);
+				let error = 'All fleet members are currently rate-limited.';
+				if (permanentlyFailedUserIds.length > 0) {
+					error += ` The following members have permanently failed and need re-authorization: ${permanentlyFailedUserIds.join(', ')}.`;
+				}
+				return c.json({ error }, 429);
+			}
+
+			for (const member of availableMembers) {
+				const result = await forwardRequest(c, member.credentials, member.projectId, model, method);
+
+				if (result.permanentlyFailed) {
+					member.permanentlyFailed = true;
+					kvNeedsUpdate = true;
+					continue; // Try next member
+				}
+
+				const { response, refreshedCredentials } = result;
+
+				if (refreshedCredentials && refreshedCredentials.access_token !== member.credentials.access_token) {
+					member.credentials = refreshedCredentials;
+					kvNeedsUpdate = true;
+				}
+
+				if (response!.status === 429) {
+					console.log(`Member ${member.userId} was rate-limited. Throttling for ${THROTTLE_DURATION_MS / 1000}s.`);
+					fleetData.throttled[member.userId] = Date.now() + THROTTLE_DURATION_MS;
+					kvNeedsUpdate = true;
+					continue; // Try next member
+				}
+
+				if (kvNeedsUpdate) {
+					c.executionCtx.waitUntil(c.env.KV.put(`fleet:${apiKey}`, JSON.stringify(fleetData)));
+				}
+				return processUpstreamResponse(c, response!);
+			}
+
+			// After the loop, if any state changed, persist it.
+			if (kvNeedsUpdate) {
+				await c.env.KV.put(`fleet:${apiKey}`, JSON.stringify(fleetData));
+			}
+
+			const permanentlyFailedUserIds = fleetData.members
+				.filter(m => m.permanentlyFailed)
+				.map(m => m.userId);
+			let errorMessage = 'All available fleet members failed due to rate-limiting.';
+			if (permanentlyFailedUserIds.length > 0) {
+				errorMessage += ` The following members have permanently failed and need re-authorization: ${permanentlyFailedUserIds.join(', ')}.`;
+			}
+			return c.json({ error: errorMessage }, 429);
+
 		} else {
-			// For SSE, we fetch the stream from the upstream and transform it on the fly.
-			const upstreamResponse = await fetch(url, {
-				method: c.req.method,
-				headers: headers,
-				body: JSON.stringify(body),
-			});
-
-			if (!upstreamResponse.ok) {
-				return upstreamResponse; // Pass through error responses directly.
+			// Handle Individual API Key
+			const userId = await c.env.KV.get(`apikey:${apiKey}`);
+			if (!userId) {
+				return c.json({ error: 'Invalid API key' }, 401);
 			}
 
-			if (!upstreamResponse.body) {
-				return new Response('Upstream response has no body', { status: 500 });
+			const userDataString = await c.env.KV.get(userId);
+			if (!userDataString) {
+				return c.json({ error: 'Could not find credentials for user' }, 500);
+			}
+			let userData: UserData = JSON.parse(userDataString);
+
+			if (userData.permanentlyFailed) {
+				return c.json({ error: 'Your API key is no longer valid due to revoked Google authorization. Please register again.' }, 401);
 			}
 
-			const transformStream = new TransformStream(new SseUnwrapTransformer());
-			const transformedBody = upstreamResponse.body.pipeThrough(transformStream);
+			const result = await forwardRequest(c, userData.credentials, userData.projectId, model, method);
 
-			const responseHeaders = new Headers();
-			responseHeaders.set('Content-Type', 'text/event-stream');
-			// responseHeaders.set('Transfer-Encoding', 'chunked');
-			// responseHeaders.set('Cache-Control', 'no-cache');
-			// responseHeaders.set('Connection', 'keep-alive');
+			if (result.permanentlyFailed) {
+				userData.permanentlyFailed = true;
+				c.executionCtx.waitUntil(c.env.KV.put(userId, JSON.stringify(userData)));
+				return c.json({ error: 'Your API key is no longer valid due to revoked Google authorization. Please register again.' }, 401);
+			}
 
-			return new Response(transformedBody, {
-				status: upstreamResponse.status,
-				statusText: upstreamResponse.statusText,
-				headers: responseHeaders,
-			});
+			const { response, refreshedCredentials } = result;
+
+			if (refreshedCredentials && refreshedCredentials.access_token !== userData.credentials.access_token) {
+				userData.credentials = refreshedCredentials;
+				c.executionCtx.waitUntil(c.env.KV.put(userId, JSON.stringify(userData)));
+			}
+
+			return processUpstreamResponse(c, response!);
 		}
 	} catch (e: any) {
-		console.error('Error forwarding request to Google API:', e);
-		// CodeAssistServer might return errors with a 'response' property containing status and data
+		console.error('Error processing request:', e);
 		if (e.response && e.response.status) {
 			return c.json({ error: 'Google API error', details: e.response.data }, e.response.status);
 		} else {
-			return c.json({ error: 'Failed to forward request to Google API', details: e.message }, 500);
+			return c.json({ error: 'Failed to forward request', details: e.message }, 500);
 		}
 	}
 });
+
+// Helper function to process the response from Google API
+async function processUpstreamResponse(c: any, upstreamResponse: Response) {
+	if (!upstreamResponse.ok) {
+		return upstreamResponse; // Pass through error responses directly.
+	}
+
+	const sse = c.req.query('alt') === 'sse';
+
+	if (sse) {
+		if (!upstreamResponse.body) {
+			return new Response('Upstream response has no body', { status: 500 });
+		}
+		const transformStream = new TransformStream(new SseUnwrapTransformer());
+		const transformedBody = upstreamResponse.body.pipeThrough(transformStream);
+		const responseHeaders = new Headers(upstreamResponse.headers);
+		responseHeaders.set('Content-Type', 'text/event-stream');
+		return new Response(transformedBody, {
+			status: upstreamResponse.status,
+			statusText: upstreamResponse.statusText,
+			headers: responseHeaders,
+		});
+	} else {
+		let respObj: any = await upstreamResponse.json();
+		if (Array.isArray(respObj)) {
+			const unwrapped = [];
+			for (const obj of respObj) {
+				if (obj && obj.response) {
+					unwrapped.push(obj.response);
+				}
+			}
+			respObj = unwrapped;
+		} else if (respObj && typeof respObj === 'object' && respObj.response) {
+			respObj = respObj.response;
+		}
+		return c.json(respObj);
+	}
+}
 
 
 export default app;

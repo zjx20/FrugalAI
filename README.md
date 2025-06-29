@@ -68,16 +68,20 @@ npm run deploy
 
 Upon successful deployment, Cloudflare will provide you with a public **Endpoint URL** (e.g., `https://your-worker-name.your-subdomain.workers.dev`).
 
-## User Authorization Logic
+## User Authorization and API Key Management
 
-The core of this project is its user authorization system. You need to follow a simple process to obtain an API key before you can use the service.
+The core of this project is its user authorization system, which now supports both individual API keys and "Fleet" API keys for enhanced rate limit management.
+
+### Fleet API Key Feature Overview
+
+The "API Key Fleet" feature allows you to group multiple OAuth accounts under a single public API key. When a request is made using a Fleet API Key, the system intelligently rotates through the accounts in the fleet. If an internal account encounters a 429 (Too Many Requests) error, the system automatically switches to another available account within the fleet, providing a more robust and resilient service. This helps in managing rate limits more effectively across multiple underlying Google accounts.
 
 ### 1. Authorize and Get an API Key
 
-In your project terminal, run the following command. Replace `<your_endpoint_url>` with the **Endpoint URL** you obtained in the previous step.
+In your project terminal, run the `authorize.mjs` script. Replace `<your_endpoint_url>` with the **Endpoint URL** you obtained in the previous step.
 
 ```bash
-node authorize.mjs --endpoint=<your_endpoint_url>
+node authorize.mjs --endpoint=<your_endpoint_url> [options]
 ```
 
 > **Note:** The `--endpoint` parameter is **required**.
@@ -86,26 +90,63 @@ This script will automatically perform the following actions:
 1.  Open a Google authorization page in your browser.
 2.  Prompt you to log in and grant the application permission to access your Google account information and Cloud Platform data.
 3.  After successful authorization, the script will capture the credentials and send a registration request to your endpoint.
-4.  Finally, your **API Key** will be printed directly to the terminal.
+4.  Finally, your **API Key** (either individual or fleet) will be printed directly to the terminal.
 
 Please store this API key securely, as it is required for all subsequent requests.
 
+#### Options for `authorize.mjs`:
+
+*   **Registering an Individual API Key (Default):**
+    ```bash
+    node authorize.mjs --endpoint=<your_endpoint_url>
+    ```
+    This will register a single OAuth account and issue a standard API key.
+
+*   **Registering a New Fleet API Key (and setting the Captain):**
+    ```bash
+    node authorize.mjs --endpoint=<your_endpoint_url> --register-fleet
+    ```
+    Use this option to create a new Fleet. The Google account you authorize during this process will become the "captain" (first member) of this new fleet. The script will output a `fleet-` prefixed API key. **Keep this key safe**, as it is your primary key for managing and using this fleet.
+
+*   **Adding a Member to an Existing Fleet:**
+    ```bash
+    node authorize.mjs --endpoint=<your_endpoint_url> --fleet-api-key=<YOUR_FLEET_API_KEY>
+    ```
+    Use this option to add another Google account as a member to an existing fleet. Replace `<YOUR_FLEET_API_KEY>` with the fleet API key obtained during fleet registration. The Google account you authorize during this process will be added to the specified fleet.
+
 ### 2. Revoke Authorization
 
-If you wish to revoke your authorization and invalidate your API key, you can send a POST request to the `/revoke` endpoint.
+You can revoke authorization for individual API keys or entire fleets.
 
-**Example `curl` command:**
+*   **Revoking an Individual API Key:**
+    ```bash
+    curl -X POST <your_endpoint_url>/revoke \
+         -H "Authorization: Bearer YOUR_INDIVIDUAL_API_KEY"
+    ```
+    This action will revoke the application's access token with Google and delete your individual user data from the KV store.
 
-```bash
-curl -X POST <your_endpoint_url>/revoke \
-     -H "Authorization: Bearer YOUR_API_KEY"
-```
+*   **Revoking a Fleet API Key:**
+    ```bash
+    curl -X POST <your_endpoint_url>/revoke \
+         -H "Authorization: Bearer YOUR_FLEET_API_KEY"
+    ```
+    This will revoke authorization for all member accounts within the specified fleet and delete the entire fleet's data from the KV store.
 
-Replace `YOUR_API_KEY` with your API key. This action will revoke the application's access token with Google and delete all your data from the KV store.
+*   **Removing a Specific Member from a Fleet:**
+    To remove a single member from a fleet without revoking the entire fleet, send a POST request to the `/fleet/remove` endpoint. You will need the fleet's API key and the `userId` of the member to remove.
+    ```bash
+    curl -X POST <your_endpoint_url>/fleet/remove \
+         -H "Content-Type: application/json" \
+         -H "Authorization: Bearer YOUR_FLEET_API_KEY" \
+         -d '{
+               "userId": "USER_ID_OF_MEMBER_TO_REMOVE"
+             }'
+    ```
+    You can find the `userId` of a member by inspecting the `fleetData` in your KV store (e.g., by temporarily logging it in your worker code during development).
 
 ## How to Use the Service
 
-Once you have your API key, you can use this proxy service in several ways.
+Once you have your API key (individual or fleet), you can use this proxy service in several ways.
 
 ### 1. Test with `curl`
 
@@ -121,7 +162,7 @@ curl -X POST "<your_endpoint_url>/v1beta/models/gemini-2.5-flash:generateContent
          }'
 ```
 
-Replace `<your_endpoint_url>` and `YOUR_API_KEY` with your actual information.
+Replace `<your_endpoint_url>` and `YOUR_API_KEY` with your actual information. Note that `YOUR_API_KEY` can now be either an individual API key or a Fleet API key.
 
 ### 2. Test via the Web Interface
 
@@ -140,6 +181,6 @@ The primary benefit of this approach is significant cost savings. By routing API
 
 To set this up, find the API settings in your tool of choice and configure the following:
 -   **API Endpoint / Base URL:** Your `<your_endpoint_url>`.
--   **API Key:** The `YOUR_API_KEY` you obtained from the `authorize.mjs` script.
+-   **API Key:** The `YOUR_API_KEY` you obtained from the `authorize.mjs` script. This can be either an individual API key or a Fleet API key.
 
 Once configured, the tool will communicate with this proxy, allowing you to use its features powered by Gemini at no cost.

@@ -5,6 +5,7 @@ import open from 'open';
 import net from 'net';
 import fs from 'fs/promises';
 import { setupUser } from '@google/gemini-cli-core/dist/src/code_assist/setup.js';
+import { request } from 'gaxios';
 
 async function getProjectId(client) {
     return await setupUser(client);
@@ -20,40 +21,46 @@ const OAUTH_SCOPE = [
     'https://www.googleapis.com/auth/userinfo.profile',
 ];
 
-async function register(endpoint, encodedCredentials) {
-    const registerUrl = new url.URL('/register', endpoint);
-    const postData = JSON.stringify({ credentials: encodedCredentials });
+async function sendCredentials(endpoint, path, encodedCredentials, fleetApiKey = null) {
+    const targetUrl = new URL(path, endpoint).toString();
+    const postData = { credentials: encodedCredentials };
 
-    const options = {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'Content-Length': Buffer.byteLength(postData),
-        },
+    const headers = {
+        'Content-Type': 'application/json',
     };
 
-    return new Promise((resolve, reject) => {
-        const req = http.request(registerUrl, options, (res) => {
-            let data = '';
-            res.on('data', (chunk) => {
-                data += chunk;
-            });
-            res.on('end', () => {
-                if (res.statusCode >= 200 && res.statusCode < 300) {
-                    resolve(JSON.parse(data));
-                } else {
-                    reject(new Error(`Request failed with status code ${res.statusCode}: ${data}`));
-                }
-            });
-        });
+    if (fleetApiKey) {
+        headers['Authorization'] = `Bearer ${fleetApiKey}`;
+    }
 
-        req.on('error', (e) => {
-            reject(e);
-        });
+    const gaxiosOptions = {
+        method: 'POST',
+        url: targetUrl,
+        headers: headers,
+        data: postData,
+    };
 
-        req.write(postData);
-        req.end();
-    });
+    // Configure proxy if HTTPS_PROXY or HTTP_PROXY environment variable is set
+    let proxyEnv = process.env.HTTPS_PROXY || process.env.HTTP_PROXY;
+    if (proxyEnv) {
+        const proxyUrl = new URL(proxyEnv);
+        gaxiosOptions.proxy = {
+            protocol: proxyUrl.protocol.replace(':', ''),
+            host: proxyUrl.hostname,
+            port: parseInt(proxyUrl.port),
+        };
+    }
+
+    try {
+        const response = await request(gaxiosOptions);
+        return response.data;
+    } catch (error) {
+        if (error.response) {
+            throw new Error(`Request failed with status code ${error.response.status}: ${JSON.stringify(error.response.data)}`);
+        } else {
+            throw error;
+        }
+    }
 }
 
 async function getAvailablePort() {
@@ -74,13 +81,16 @@ async function main() {
     const args = process.argv.slice(2);
     const endpointArg = args.find(arg => arg.startsWith('--endpoint='));
     const credentialsFileArg = args.find(arg => arg.startsWith('--credentials-file='));
+    const fleetApiKeyArg = args.find(arg => arg.startsWith('--fleet-api-key='));
+    const registerFleetArg = args.includes('--register-fleet');
 
     const endpoint = endpointArg ? endpointArg.split('=')[1] : null;
     const credentialsFile = credentialsFileArg ? credentialsFileArg.split('=')[1] : null;
+    const fleetApiKey = fleetApiKeyArg ? fleetApiKeyArg.split('=')[1] : null;
 
     if (!endpoint) {
         console.error('Error: The --endpoint parameter is required.');
-        console.error('Usage: node authorize.mjs --endpoint=<your_server_url>');
+        console.error('Usage: node authorize.mjs --endpoint=<your_server_url> [--credentials-file=<path_to_file>] [--fleet-api-key=<fleet_api_key>] [--register-fleet]');
         process.exit(1);
     }
     let encodedCredentials;
@@ -107,15 +117,32 @@ async function main() {
     }
 
     try {
-        console.log(`Registering with endpoint: ${endpoint}`);
-        const result = await register(endpoint, encodedCredentials);
-        console.log('--------------------------------------------------------------------------');
-        console.log('API Key obtained successfully:');
-        console.log(`\n${result.apiKey}\n`);
-        console.log('You can now use this API key to access the service.');
-        console.log('--------------------------------------------------------------------------');
+        let result;
+        if (registerFleetArg) {
+            console.log(`Registering new fleet with endpoint: ${endpoint}`);
+            result = await sendCredentials(endpoint, '/fleet/register', encodedCredentials);
+            console.log('--------------------------------------------------------------------------');
+            console.log('Fleet API Key obtained successfully:');
+            console.log(`\n${result.fleetApiKey}\n`);
+            console.log('Please keep this API key safe. You will use it to add new members to your fleet.');
+            console.log('--------------------------------------------------------------------------');
+        } else if (fleetApiKey) {
+            console.log(`Adding member to fleet with API key: ${fleetApiKey}`);
+            result = await sendCredentials(endpoint, '/fleet/add', encodedCredentials, fleetApiKey);
+            console.log('--------------------------------------------------------------------------');
+            console.log('Member added to fleet successfully.');
+            console.log('--------------------------------------------------------------------------');
+        } else {
+            console.log(`Registering with endpoint: ${endpoint}`);
+            result = await sendCredentials(endpoint, '/register', encodedCredentials);
+            console.log('--------------------------------------------------------------------------');
+            console.log('API Key obtained successfully:');
+            console.log(`\n${result.apiKey}\n`);
+            console.log('You can now use this API key with your application.');
+            console.log('--------------------------------------------------------------------------');
+        }
     } catch (error) {
-        console.error('Failed to register and get API key:', error.message);
+        console.error('Failed to process credentials:', error.message);
     }
 }
 
