@@ -1,6 +1,8 @@
-# Gemini Free API Proxy
+# FrugalAI
 
-This project is a Cloudflare Worker that acts as a proxy for the Google Gemini API. It exposes an interface compatible with the official Google GenAI API and internally translates requests to the Google Code Assist API format, enabling free access to Gemini models.
+The solution for the poor, long live free access!
+
+This project is a Cloudflare Worker that acts as a proxy for the Google Gemini API. It exposes an interface compatible with the official Google Gemini API and internally translates requests to the Google Code Assist API format, enabling free access to Gemini models.
 
 The project includes a complete OAuth2 flow to authorize access to Google services, securely storing the obtained credentials (access tokens, refresh tokens) in a Cloudflare KV namespace. Each user is issued a unique API key to access the service.
 
@@ -22,7 +24,7 @@ First, clone the repository and install the dependencies:
 
 ```bash
 git clone <repository-url>
-cd gemini-free-api
+cd frugalai
 npm install
 ```
 
@@ -36,7 +38,7 @@ Next, bind your KV namespace to this worker. Open the `wrangler.jsonc` file and 
     {
       "binding": "KV",
       "id": "your_kv_namespace_id",
-      "preview_id": "your_kv_namespace_preview_id"
+      "preview_id": "your_kv_namespace_preview_id"  // Optional
     }
   ]
 }

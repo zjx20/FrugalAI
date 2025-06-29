@@ -4,7 +4,7 @@
  */
 {
 	"$schema": "node_modules/wrangler/config-schema.json",
-	"name": "gemini-free-api",
+	"name": "frugalai",
 	"main": "src/index.ts",
 	"compatibility_date": "2025-06-28",
 	"compatibility_flags": [
