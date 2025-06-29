@@ -7,6 +7,9 @@
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/default.min.css">
     <style>
+        html {
+            height: 100%;
+        }
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             display: flex;
@@ -14,14 +17,15 @@
             align-items: center;
             margin: 0;
             background-color: #e0f2f7; /* Light blue background */
-            min-height: 100vh;
+            height: 100vh; /* Use viewport height */
+            min-height: 800px; /* Set minimum height */
             padding: 20px;
             box-sizing: border-box;
         }
         .container {
             width: 100%;
             max-width: 900px; /* Increased max-width */
-            margin: 20px auto;
+            margin: 0;
             background: white;
             padding: 30px;
             border-radius: 12px;
@@ -29,17 +33,21 @@
             display: flex;
             flex-direction: column;
             gap: 20px;
+            flex: 1; /* Allow container to grow and shrink */
+            min-height: 0; /* Critical for allowing child to scroll */
         }
         h1 {
             color: #263238;
             text-align: center;
             margin-bottom: 25px;
+			font-size: 1.5em;
         }
         h2 {
             color: #37474f;
             border-bottom: 1px solid #eceff1;
             padding-bottom: 10px;
             margin-bottom: 15px;
+			font-size: 1.2em;
         }
         .api-key-section, .model-selection-section {
             background-color: #f5f5f5;
@@ -48,90 +56,91 @@
             border: 1px solid #e0e0e0;
         }
         #chat-window {
-            height: 450px; /* Slightly increased height */
+            flex: 1; /* Allow chat window to grow and shrink */
+            min-height: 0; /* Allow shrinking below content size */
             border: 1px solid #b0bec5;
             border-radius: 8px;
             overflow-y: auto;
-            padding: 15px;
+            padding: 20px; /* Use the larger padding value */
             background-color: #ffffff;
             box-shadow: inset 0 1px 3px rgba(0,0,0,0.05);
         }
         .message {
             margin-bottom: 15px;
             padding: 12px 15px;
-            border-radius: 10px;
+            border-radius: 15px; /* More rounded corners */
             line-height: 1.6;
             word-wrap: break-word;
             max-width: 85%;
+            position: relative; /* For the speech bubble tail */
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1); /* Subtle shadow */
+        }
+        .message-content {
+            padding-bottom: 15px; /* Space for timestamp */
+        }
+        .message-timestamp {
+            position: absolute;
+            bottom: 5px;
+            font-size: 0.75em;
+            color: rgba(0, 0, 0, 0.5);
         }
         .user-message {
-            background-color: #bbdefb; /* Lighter blue */
+            background-color: #e3f2fd; /* Very light blue */
             color: #212121;
             margin-left: auto;
-            text-align: right;
+            text-align: left; /* Align user text left within their bubble */
             border-bottom-right-radius: 2px;
         }
-        .bot-message {
-            background-color: #c8e6c9; /* Lighter green */
+        .user-message .message-timestamp {
+            right: 10px;
+        }
+        .user-message::after { /* Speech bubble tail for user */
+            content: '';
+            position: absolute;
+            border: 10px solid transparent;
+            border-bottom-color: #e3f2fd;
+            border-right-color: #e3f2fd;
+            bottom: 0;
+            right: -10px;
+            transform: translateY(50%) rotate(45deg);
+            box-shadow: 2px 2px 5px rgba(0,0,0,0.1);
+            z-index: -1;
+        }
+        .model-message {
+            background-color: #e8f5e9 !important; /* Even lighter green */
             color: #212121;
             margin-right: auto;
             text-align: left;
             border-bottom-left-radius: 2px;
         }
-        #chat-input {
-            flex-grow: 1;
-            padding: 12px 15px;
-            border: 1px solid #90a4ae;
-            border-radius: 25px;
-            font-size: 1rem;
-            outline: none;
-            transition: border-color 0.3s;
+        .model-message .message-timestamp {
+            left: 10px;
         }
-        #chat-input:focus {
-            border-color: #42a5f5;
-            box-shadow: 0 0 0 3px rgba(66, 165, 245, 0.2);
+        .model-message::after { /* Speech bubble tail for bot */
+            content: '';
+            position: absolute;
+            border: 10px solid transparent;
+            border-bottom-color: #e8f5e9 !important; /* Even lighter green, with !important */
+            border-left-color: #e8f5e9 !important; /* Even lighter green, with !important */
+            bottom: 0;
+            left: -10px;
+            transform: translateY(50%) rotate(-45deg);
+            box-shadow: -2px 2px 5px rgba(0,0,0,0.1);
+            z-index: -1;
         }
-        #send-button {
-            padding: 12px 20px;
-            border: none;
-            background-color: #4CAF50;
-            color: white;
-            border-radius: 25px;
-            cursor: pointer;
-            font-size: 1rem;
-            transition: background-color 0.3s, transform 0.2s;
-            margin-left: 10px;
-        }
-        #send-button:hover {
-            background-color: #43a047;
-            transform: translateY(-1px);
-        }
-        #send-button:active {
-            transform: translateY(0);
-        }
+        /* Adjust padding for input area to prevent overlap with message tails */
         .input-area {
-            display: flex;
-            align-items: center;
-            gap: 10px;
+            padding-top: 20px;
         }
-        .api-key-section input, .model-selection-section select {
-            width: calc(100% - 100px); /* Adjusted width */
-            padding: 10px;
-            border: 1px solid #b0bec5;
-            border-radius: 5px;
-            font-size: 0.95rem;
+        /* Adjust message max-width for better appearance with tails */
+        .message {
+            max-width: calc(85% - 20px); /* Account for tail width */
         }
-        .api-key-section button, .registration-section button {
-            padding: 10px 15px;
-            background-color: #2196f3;
-            color: white;
-            border: none;
-            border-radius: 5px;
-            cursor: pointer;
-            transition: background-color 0.3s;
+        .user-message {
+            margin-right: 10px; /* Space for tail */
         }
-        .api-key-section button:hover, .registration-section button:hover {
-            background-color: #1976d2;
+        .bot-message {
+            margin-left: 10px; /* Space for tail */
         }
         .loading-spinner {
             border: 4px solid rgba(0, 0, 0, 0.1);
@@ -142,12 +151,131 @@
             animation: spin 1s linear infinite;
             display: inline-block;
             vertical-align: middle;
-            margin-left: 10px;
+            margin-right: 5px; /* Space between spinner and time */
         }
 
         @keyframes spin {
             0% { transform: rotate(0deg); }
             100% { transform: rotate(360deg); }
+        }
+
+        /* General input and button styling */
+        input[type="text"], select {
+            width: 100%;
+            padding: 10px 12px;
+            margin-top: 8px;
+            border: 1px solid #b0bec5;
+            border-radius: 6px;
+            box-sizing: border-box; /* Include padding and border in the element's total width and height */
+            font-size: 1rem;
+            color: #37474f;
+            transition: border-color 0.3s, box-shadow 0.3s;
+        }
+
+        input[type="text"]:focus, select:focus {
+            border-color: #42a5f5;
+            box-shadow: 0 0 0 3px rgba(66, 165, 245, 0.2);
+            outline: none;
+        }
+
+        button {
+            padding: 10px 15px;
+            background-color: #42a5f5; /* Blue */
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 1rem;
+            transition: background-color 0.3s, box-shadow 0.3s;
+        }
+
+        button:hover {
+            background-color: #2196f3; /* Darker blue on hover */
+            box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+        }
+
+        button:active {
+            background-color: #1976d2; /* Even darker blue on click */
+        }
+
+        /* Layout for settings section */
+        .settings-section {
+            display: flex;
+            gap: 20px; /* Space between API key and model selection sections */
+            width: 100%;
+            flex-wrap: wrap; /* Allow wrapping on smaller screens */
+        }
+
+        .api-key-section, .model-selection-section {
+            flex: 1; /* Allow sections to grow and shrink */
+            min-width: 300px; /* Minimum width before wrapping */
+            background-color: #f5f5f5;
+            padding: 15px;
+            border-radius: 8px;
+            border: 1px solid #e0e0e0;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .api-key-section h2, .model-selection-section h2 {
+            margin-top: 0;
+            margin-bottom: 10px;
+        }
+
+        .input-group {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        #api-key-input {
+            flex-grow: 1;
+            margin-top: 0; /* Override default input margin-top */
+        }
+
+        #save-key-button {
+            flex-shrink: 0;
+        }
+
+        #model-select {
+            margin-bottom: 0; /* Remove bottom margin as it's part of the section */
+        }
+
+        #attach-image-button {
+            flex-shrink: 0;
+            background-color: #607d8b; /* Different color for attach button */
+            border-radius: 25px; /* More rounded */
+            padding: 12px 15px; /* Slightly larger padding */
+            font-size: 1rem;
+        }
+
+        #attach-image-button:hover {
+            background-color: #455a64;
+        }
+
+        #attach-image-button:active {
+            background-color: #37474f;
+        }
+
+        #remove-image-button {
+            padding: 8px 12px;
+            font-size: 0.9rem;
+            border-radius: 5px;
+        }
+
+        .input-area {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        #chat-input {
+            flex-grow: 1;
+            margin-top: 0;
+        }
+
+        #send-button {
+            flex-shrink: 0;
         }
 
         /* Responsive adjustments */
@@ -169,7 +297,15 @@
                 margin-left: 0;
             }
             .api-key-section input, .model-selection-section select {
-                width: calc(100% - 100px);
+                width: 100%; /* Full width on small screens */
+            }
+            .input-group {
+                flex-direction: column;
+                align-items: stretch;
+            }
+            #api-key-input {
+                margin-right: 0;
+                margin-bottom: 10px;
             }
         }
     </style>
@@ -178,20 +314,26 @@
     <div class="container">
         <h1>Gemini API Chat</h1>
 
-        <div class="api-key-section">
-            <h2>Enter Your API Key</h2>
-            <input type="text" id="api-key-input" placeholder="Paste your API key here">
-            <button id="save-key-button">Save Key</button>
+        <div class="settings-section">
+            <div class="api-key-section">
+                <h2>Enter Your API Key</h2>
+                <div class="input-group">
+                    <input type="text" id="api-key-input" placeholder="Paste your API key here">
+                    <button id="save-key-button">Save Key</button>
+                </div>
+            </div>
+
+            <div class="model-selection-section">
+                <h2>Select Model</h2>
+                <select id="model-select">
+                    <option value="gemini-2.5-pro">Gemini 2.5 Pro</option>
+                    <option value="gemini-2.5-flash" selected>Gemini 2.5 Flash</option>
+                    <option value="gemini-2.5-flash-lite">Gemini 2.5 Flash Lite</option>
+                </select>
+            </div>
         </div>
 
-        <div class="model-selection-section">
-            <h2>Select Model</h2>
-            <select id="model-select">
-				<option value="gemini-2.5-pro">Gemini 2.5 Pro</option>
-                <option value="gemini-2.5-flash" selected>Gemini 2.5 Flash</option>
-                <option value="gemini-2.5-flash-lite">Gemini 2.5 Flash Lite</option>
-            </select>
-        </div>
+        <button id="clear-chat-button" style="margin-bottom: 10px; background-color: #f44336;">Clear Chat History</button>
 
         <div id="chat-window"></div>
         <div id="image-preview-container" style="display: none; margin-bottom: 10px; text-align: center;">
@@ -200,7 +342,7 @@
         </div>
         <div class="input-area">
             <input type="file" id="image-input" accept="image/*" style="display: none;">
-            <button id="attach-image-button" style="padding: 12px 15px; background-color: #607d8b; color: white; border: none; border-radius: 25px; cursor: pointer; font-size: 1rem; transition: background-color 0.3s;">Attach Image</button>
+            <button id="attach-image-button">Attach Image</button>
             <input type="text" id="chat-input" placeholder="Type your message...">
             <button id="send-button">Send</button>
         </div>
@@ -220,9 +362,25 @@
         const imagePreview = document.getElementById('image-preview');
         const removeImageButton = document.getElementById('remove-image-button');
 
-        let conversationHistory = [];
+        let conversationHistory = []; // This will now store richer message objects
         let attachedImage = null; // To store the attached image data
         let imageLoadPromise = Promise.resolve(); // A promise that resolves when image is loaded
+
+        const clearChatButton = document.getElementById('clear-chat-button');
+
+        // Function to save chat history to local storage
+        function saveChatHistory() {
+            localStorage.setItem('chatHistory', JSON.stringify(conversationHistory));
+        }
+
+        // Function to load chat history from local storage
+        function loadChatHistory() {
+            const savedHistory = localStorage.getItem('chatHistory');
+            if (savedHistory) {
+                conversationHistory = JSON.parse(savedHistory);
+                renderChatHistory(); // Render messages from loaded history
+            }
+        }
 
         attachImageButton.addEventListener('click', () => {
             imageInput.click(); // Trigger the hidden file input click
@@ -307,61 +465,33 @@
             }
         });
 
-        async function sendMessage() {
-            const message = chatInput.value;
+        async function processGeminiResponse(history, botMessageElement, isRetry = false) {
             const apiKey = apiKeyInput.value;
             const selectedModel = modelSelect.value;
 
-            // Wait for any pending image load to complete
-            await imageLoadPromise;
-
-            if (!message || !apiKey) {
-                alert('Please enter a message and API key.');
-                return;
+            // Clear previous content if it's a retry
+            if (isRetry) {
+                // Only clear the content, not the timestamp
+                const contentDiv = botMessageElement.querySelector('.message-content');
+                if (contentDiv) {
+                    contentDiv.innerHTML = '';
+                }
             }
 
-            if (!message && !attachedImage) {
-                alert('Please enter a message or attach an image.');
-                return;
-            }
-
-            const userContent = {
-                role: 'user',
-                parts: []
-            };
-
-            appendMessage(message, 'user-message');
-            if (attachedImage) {
-                appendMessage(`<img src="${imagePreview.src}" style="max-width: 100px; max-height: 100px; border-radius: 5px;">`, 'user-message');
-            }
-
-            if (message) {
-                userContent.parts.push({ text: message });
-            }
-            if (attachedImage) {
-                userContent.parts.push({
-                    inlineData: {
-                        mimeType: attachedImage.mimeType,
-                        data: attachedImage.data
-                    }
-                });
-            }
-            conversationHistory.push(userContent);
-
-            // Clear input fields and attached image data AFTER constructing userContent
-            chatInput.value = '';
-            imageInput.value = ''; // Clear file input
-            imagePreviewContainer.style.display = 'none'; // Hide preview
-            attachedImage = null; // Clear attached image
-
-            const botMessageElement = appendMessage('', 'bot-message');
             let botMessage = '';
 
-            // Create and append loading spinner and time display to the bot message element
+            // Create and append loading spinner and time display to the bot message content div
+            const contentDiv = botMessageElement.querySelector('.message-content');
+            if (!contentDiv) {
+                console.error('message-content div not found in botMessageElement');
+                return;
+            }
+
             const spinnerContainer = document.createElement('span');
             spinnerContainer.id = 'loading-spinner-in-message';
             spinnerContainer.style.display = 'flex';
             spinnerContainer.style.alignItems = 'center';
+            spinnerContainer.style.marginBottom = '5px'; // Add some space below spinner
 
             const spinner = document.createElement('span');
             spinner.className = 'loading-spinner'; // Apply CSS class for spinner
@@ -372,13 +502,16 @@
             timeDisplay.textContent = '0.0s';
             spinnerContainer.appendChild(timeDisplay);
 
-            botMessageElement.appendChild(spinnerContainer);
+            contentDiv.appendChild(spinnerContainer);
+
 
             let startTime = Date.now();
             let timerInterval = setInterval(() => {
                 const elapsedTime = (Date.now() - startTime) / 1000;
                 timeDisplay.textContent = `${elapsedTime.toFixed(1)}s`;
             }, 100); // Update every 100ms for 0.1s precision
+
+            let hasError = false; // Flag to track if an error occurred
 
             try {
                 const response = await fetch(`/v1beta/models/${selectedModel}:streamGenerateContent?alt=sse`, {
@@ -388,13 +521,15 @@
                         'x-goog-api-key': apiKey
                     },
                     body: JSON.stringify({
-                        contents: conversationHistory
+                        contents: history
                     })
                 });
 
                 if (!response.ok) {
                     const errorData = await response.json();
-                    throw new Error(errorData.error || 'API request failed');
+                    // Extract a more specific error message if available
+                    const errorMessage = errorData.error && errorData.error.message ? errorData.error.message : JSON.stringify(errorData);
+                    throw new Error(errorMessage || 'API request failed');
                 }
 
                 const reader = response.body.getReader();
@@ -419,7 +554,9 @@
                                 if (data.candidates && data.candidates[0].content.parts[0].text) {
                                     const textPart = data.candidates[0].content.parts[0].text;
                                     botMessage += textPart;
-                                    botMessageElement.innerHTML = marked.parse(botMessage); // Render Markdown
+                                    // Update contentDiv, not botMessageElement directly
+                                    contentDiv.innerHTML = marked.parse(botMessage); // Render Markdown
+                                    contentDiv.prepend(spinnerContainer); // Keep spinner at the top
                                     hljs.highlightAll(); // Apply syntax highlighting
                                     chatWindow.scrollTop = chatWindow.scrollHeight;
                                 }
@@ -429,38 +566,310 @@
                         }
                     }
                 }
-                conversationHistory.push({ role: 'model', parts: [{ text: botMessage }] });
+                // Update conversation history with the successful response
+                // The `history` parameter here is already the `apiData` array
+                // We need to reconstruct the full message object for `conversationHistory`
+                const successfulBotMessage = {
+                    apiData: {
+                        role: 'model',
+                        parts: [{ text: botMessage }]
+                    },
+                    metadata: {
+                        timestamp: new Date().toISOString(),
+                        model: selectedModel
+                    }
+                };
+
+                if (isRetry) {
+                    // If it's a retry, replace the last message (which was the error)
+                    // This assumes the last message in history is the one we're retrying or the previous error.
+                    const lastBotMessageIndex = conversationHistory.length - 1;
+                    if (lastBotMessageIndex >= 0 && conversationHistory[lastBotMessageIndex].apiData.role === 'model') {
+                        conversationHistory[lastBotMessageIndex] = successfulBotMessage;
+                    } else {
+                        conversationHistory.push(successfulBotMessage);
+                    }
+                } else {
+                    conversationHistory.push(successfulBotMessage);
+                }
+                saveChatHistory(); // Save history after each bot message
+                renderChatHistory(); // Re-render the entire chat history
+
             } catch (error) {
                 console.error('Error:', error);
-                botMessageElement.innerHTML = `Error: ${error.message || 'Could not connect to the API.'}`; // Render error as Markdown too
-            } finally {
                 clearInterval(timerInterval); // Stop the timer
-                // Remove the spinner and time display from the bot message element
-                const currentSpinnerContainer = botMessageElement.querySelector('#loading-spinner-in-message');
+
+                // Remove the spinner
+                const currentSpinnerContainer = contentDiv.querySelector('#loading-spinner-in-message');
+                if (currentSpinnerContainer) {
+                    currentSpinnerContainer.remove();
+                }
+
+                // Display error message
+                let errorMessage = 'An unknown error occurred.';
+                if (error instanceof Error) {
+                    errorMessage = error.message;
+                } else if (typeof error === 'object' && error !== null) {
+                    errorMessage = JSON.stringify(error);
+                } else if (typeof error === 'string') {
+                    errorMessage = error;
+                }
+                const errorText = `Error: ${errorMessage}`;
+                contentDiv.innerHTML = marked.parse(errorText); // Render error as Markdown
+
+                hasError = true; // Set error flag
+
+                // Save the error message to conversation history
+                const errorHistoryObject = {
+                    apiData: {
+                        role: 'model',
+                        parts: [{ text: errorText }]
+                    },
+                    metadata: {
+                        timestamp: new Date().toISOString(),
+                        model: selectedModel,
+                        isError: true // Mark this message as an error
+                    }
+                };
+
+                // If it's a retry, replace the last message (which was the previous error or partial response)
+                // Otherwise, push it as a new message
+                if (isRetry) {
+                    // Find the index of the message that triggered the retry (usually the last bot message)
+                    // and replace it with the new error message.
+                    // This assumes the last message in history is the one we're retrying or the previous error.
+                    const lastBotMessageIndex = conversationHistory.length - 1;
+                    if (lastBotMessageIndex >= 0 && conversationHistory[lastBotMessageIndex].apiData.role === 'model') {
+                        conversationHistory[lastBotMessageIndex] = errorHistoryObject;
+                    } else {
+                        conversationHistory.push(errorHistoryObject);
+                    }
+                } else {
+                    conversationHistory.push(errorHistoryObject);
+                }
+                saveChatHistory(); // Save history after adding the error message
+                renderChatHistory(); // Re-render the entire chat history
+
+            } finally {
+                clearInterval(timerInterval); // Ensure timer is cleared
+                // Remove the spinner and time display from the bot message element if it's still there
+                const currentSpinnerContainer = contentDiv.querySelector('#loading-spinner-in-message');
                 if (currentSpinnerContainer) {
                     currentSpinnerContainer.remove();
                 }
                 // Append the final elapsed time to the message if it's not an error
-                if (!error) {
+                if (!hasError) { // Check the flag instead of the error variable
                     const finalElapsedTime = (Date.now() - startTime) / 1000;
                     const finalTimeSpan = document.createElement('span');
-                    finalTimeSpan.style.fontSize = '0.8em';
-                    finalTimeSpan.style.color = '#546e7a';
+                    finalTimeSpan.className = 'message-timestamp'; // Use the same class for consistent styling
+                    finalTimeSpan.style.position = 'static'; // Override absolute positioning for inline display
+                    finalTimeSpan.style.display = 'inline-block'; // Allow margin
                     finalTimeSpan.style.marginLeft = '10px';
                     finalTimeSpan.textContent = `(${finalElapsedTime.toFixed(1)}s)`;
-                    botMessageElement.appendChild(finalTimeSpan);
+                    contentDiv.appendChild(finalTimeSpan);
                 }
             }
         }
 
-        function appendMessage(text, className) {
+        async function sendMessage() {
+            const message = chatInput.value;
+            const apiKey = apiKeyInput.value; // Not directly used here, but kept for consistency
+            const selectedModel = modelSelect.value; // Not directly used here, but kept for consistency
+
+            // Wait for any pending image load to complete
+            await imageLoadPromise;
+
+            if (!message && !attachedImage) {
+                alert('Please enter a message or attach an image.');
+                return;
+            }
+
+            const userMessageObject = {
+                apiData: {
+                    role: 'user',
+                    parts: []
+                },
+                metadata: {
+                    timestamp: new Date().toISOString()
+                }
+            };
+
+            if (message) {
+                userMessageObject.apiData.parts.push({ text: message });
+            }
+            if (attachedImage) {
+                userMessageObject.apiData.parts.push({
+                    inlineData: {
+                        mimeType: attachedImage.mimeType,
+                        data: attachedImage.data
+                    }
+                });
+            }
+            conversationHistory.push(userMessageObject);
+            saveChatHistory(); // Save history after each user message
+
+            // Append message to UI
+            appendMessage(userMessageObject);
+            if (attachedImage) {
+                // Append image preview as part of the user message
+                const imagePart = {
+                    apiData: {
+                        role: 'user',
+                        parts: [{ text: `<img src="${imagePreview.src}" style="max-width: 100px; max-height: 100px; border-radius: 5px;">` }]
+                    },
+                    metadata: {
+                        timestamp: userMessageObject.metadata.timestamp // Use the same timestamp as the text message
+                    }
+                };
+                appendMessage(imagePart);
+            }
+
+            // Store the conversation history at this point for potential retry
+            // Create a clean history for the API request, sending only apiData
+            const historyForApi = conversationHistory.map(msg => msg.apiData);
+
+            // Clear input fields and attached image data AFTER constructing userContent
+            chatInput.value = '';
+            imageInput.value = ''; // Clear file input
+            imagePreviewContainer.style.display = 'none'; // Hide preview
+            attachedImage = null; // Clear attached image
+
+            // The botMessageElement is now passed to processGeminiResponse for initial loading spinner display
+            // It will be re-rendered by renderChatHistory after the response is complete.
+            const botMessageElement = appendMessage({ apiData: { role: 'model', parts: [{ text: '' }] }, metadata: { timestamp: new Date().toISOString(), model: selectedModel } });
+            await processGeminiResponse(historyForApi, botMessageElement);
+        }
+
+        function appendMessage(messageObject) {
             const messageElement = document.createElement('div');
-            messageElement.innerHTML = text; // Use innerHTML for initial message as well
-            messageElement.className = `message ${className}`;
+            messageElement.className = `message ${messageObject.apiData.role}-message`;
+
+            const contentDiv = document.createElement('div');
+            contentDiv.className = 'message-content';
+            // Render content based on parts
+            let messageText = '';
+            messageObject.apiData.parts.forEach(part => {
+                if (part.text) {
+                    messageText += marked.parse(part.text);
+                } else if (part.inlineData && part.inlineData.mimeType.startsWith('image/')) {
+                    messageText += `<img src="data:${part.inlineData.mimeType};base64,${part.inlineData.data}" style="max-width: 100px; max-height: 100px; border-radius: 5px;">`;
+                }
+            });
+            contentDiv.innerHTML = messageText;
+            messageElement.appendChild(contentDiv);
+
+            const timestampSpan = document.createElement('span');
+            timestampSpan.className = 'message-timestamp';
+            // Display both date and time
+            timestampSpan.textContent = new Date(messageObject.metadata.timestamp).toLocaleString([], {
+                year: 'numeric',
+                month: 'numeric',
+                day: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit'
+            });
+            messageElement.appendChild(timestampSpan);
+
+            // Display model name for bot messages
+            if (messageObject.apiData.role === 'model' && messageObject.metadata.model) {
+                const modelSpan = document.createElement('span');
+                modelSpan.className = 'model-info';
+                modelSpan.style.fontSize = '0.75em';
+                modelSpan.style.color = 'rgba(0, 0, 0, 0.4)';
+                modelSpan.style.marginLeft = '5px';
+                modelSpan.textContent = `(${messageObject.metadata.model})`;
+                timestampSpan.appendChild(modelSpan); // Append model info next to timestamp
+            }
+
             chatWindow.appendChild(messageElement);
             chatWindow.scrollTop = chatWindow.scrollHeight;
+
+            // Apply syntax highlighting if there's code
+            hljs.highlightAll();
+
             return messageElement;
         }
+
+        // New function to render the entire chat history
+        function renderChatHistory() {
+            chatWindow.innerHTML = ''; // Clear current chat window
+            conversationHistory.forEach((messageObject, index) => {
+                const messageElement = document.createElement('div');
+                messageElement.className = `message ${messageObject.apiData.role}-message`;
+
+                const contentDiv = document.createElement('div');
+                contentDiv.className = 'message-content';
+                let messageText = '';
+                messageObject.apiData.parts.forEach(part => {
+                    if (part.text) {
+                        messageText += marked.parse(part.text);
+                    } else if (part.inlineData && part.inlineData.mimeType.startsWith('image/')) {
+                        messageText += `<img src="data:${part.inlineData.mimeType};base64,${part.inlineData.data}" style="max-width: 100px; max-height: 100px; border-radius: 5px;">`;
+                    }
+                });
+                contentDiv.innerHTML = messageText;
+                messageElement.appendChild(contentDiv);
+
+                const timestampSpan = document.createElement('span');
+                timestampSpan.className = 'message-timestamp';
+                timestampSpan.textContent = new Date(messageObject.metadata.timestamp).toLocaleString([], {
+                    year: 'numeric',
+                    month: 'numeric',
+                    day: 'numeric',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    second: '2-digit'
+                });
+                messageElement.appendChild(timestampSpan);
+
+                if (messageObject.apiData.role === 'model' && messageObject.metadata.model) {
+                    const modelSpan = document.createElement('span');
+                    modelSpan.className = 'model-info';
+                    modelSpan.style.fontSize = '0.75em';
+                    modelSpan.style.color = 'rgba(0, 0, 0, 0.4)';
+                    modelSpan.style.marginLeft = '5px';
+                    modelSpan.textContent = `(${messageObject.metadata.model})`;
+                    timestampSpan.appendChild(modelSpan);
+                }
+
+                // Add retry button if it's an error message
+                if (messageObject.metadata.isError) {
+                    const retryButton = document.createElement('button');
+                    retryButton.textContent = 'Retry';
+                    retryButton.style.marginLeft = '10px';
+                    retryButton.style.padding = '5px 10px';
+                    retryButton.style.backgroundColor = '#ff9800';
+                    retryButton.style.color = 'white';
+                    retryButton.style.border = 'none';
+                    retryButton.style.borderRadius = '5px';
+                    retryButton.style.cursor = 'pointer';
+                    retryButton.onclick = () => {
+                        // Reconstruct history up to this message (excluding the error message itself)
+                        const historyBeforeError = conversationHistory.slice(0, index).map(msg => msg.apiData);
+                        // Pass the current message element to processGeminiResponse so it can update it
+                        processGeminiResponse(historyBeforeError, messageElement, true);
+                    };
+                    contentDiv.appendChild(retryButton);
+                }
+
+                chatWindow.appendChild(messageElement);
+                hljs.highlightAll(); // Apply syntax highlighting for each message
+            });
+            chatWindow.scrollTop = chatWindow.scrollHeight;
+        }
+
+        // Clear chat history button event listener
+        clearChatButton.addEventListener('click', () => {
+            if (confirm('Are you sure you want to clear all chat history?')) {
+                localStorage.removeItem('chatHistory');
+                conversationHistory = [];
+                renderChatHistory(); // Re-render to clear the UI
+            }
+        });
+
+        // Load chat history on page load
+        loadChatHistory();
     </script>
 </body>
 </html>
