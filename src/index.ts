@@ -388,7 +388,7 @@ class SseUnwrapTransformer implements Transformer<Uint8Array, Uint8Array> {
 						endl = '\r\n';
 					}
 					const unwrappedData = dataObj.response;
-					console.log('unwrappedData:', JSON.stringify(unwrappedData));
+					// console.log('unwrappedData:', JSON.stringify(unwrappedData));
 					outputs.push(`data: ${JSON.stringify(unwrappedData)}${endl}`);
 				} else {
 					// This might handle non-standard or error messages that are still valid JSON
@@ -499,6 +499,14 @@ async function processUpstreamResponseOpenAI(c: any, upstreamResponse: Response,
 	}
 }
 
+function extractModel(model: string): string {
+	const parts = model.split(':');
+	if (parts.length === 2) {
+		return parts[1];
+	}
+	return model;
+}
+
 app.post('/v1/chat/completions', async (c) => {
 	const authHeader = c.req.header('Authorization');
 	const apiKey = authHeader?.split(' ')[1]; // Expecting "Bearer <key>"
@@ -508,7 +516,7 @@ app.post('/v1/chat/completions', async (c) => {
 	}
 
 	const openAIRequestBody: ChatCompletionCreateParams = await c.req.json();
-	const model = openAIRequestBody.model;
+	const model = extractModel(openAIRequestBody.model);
 	const stream = openAIRequestBody.stream ?? false;
 	const method = stream ? 'streamGenerateContent' : 'generateContent';
 	const geminiRequestParams = convertChatCompletionCreateToGemini(openAIRequestBody);

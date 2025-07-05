@@ -27,7 +27,13 @@ export function convertChatCompletionCreateToGemini(
 	const result = convertOpenAiMessagesToGemini(req.messages);
 	gReq.contents = result.geminiContents;
 	if (result.systemInstructions.length > 0) {
-		gReq.config!.systemInstruction = result.systemInstructions;
+		const systemInstructions: Content = {
+			parts: [],
+		};
+		for (const instruction of result.systemInstructions) {
+			systemInstructions.parts!.push({ text: instruction });
+		}
+		gReq.config!.systemInstruction = systemInstructions;
 	}
 	if (result.imageDetails.length > 0) {
 		let mediaResolution: MediaResolution | undefined = undefined;
