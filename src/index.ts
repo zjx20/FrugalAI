@@ -1,5 +1,11 @@
 import { Hono } from 'hono';
 import { OAuth2Client } from 'google-auth-library';
+import { ChatCompletionCreateParams } from 'openai/resources/chat/completions';
+import {
+	convertChatCompletionCreateToGemini,
+	convertGoogleResponseToOpenAi,
+	GoogleToOpenAiSseTransformer,
+} from './openai-adapter';
 
 const CODE_ASSIST_ENDPOINT = 'https://cloudcode-pa.googleapis.com';
 const CODE_ASSIST_API_VERSION = 'v1internal';
@@ -382,6 +388,7 @@ class SseUnwrapTransformer implements Transformer<Uint8Array, Uint8Array> {
 						endl = '\r\n';
 					}
 					const unwrappedData = dataObj.response;
+					console.log('unwrappedData:', JSON.stringify(unwrappedData));
 					outputs.push(`data: ${JSON.stringify(unwrappedData)}${endl}`);
 				} else {
 					// This might handle non-standard or error messages that are still valid JSON
@@ -401,14 +408,14 @@ class SseUnwrapTransformer implements Transformer<Uint8Array, Uint8Array> {
 		if (this.buffer) {
 			// Normally, the server adds a delimiter after the last event,
 			// so there should be no unprocessed buffer at the end.
-			console.error('Unprocessed buffer remaining at the end of the stream:', this.buffer);
+			console.error('[SseUnwrapTransformer] Unprocessed buffer remaining at the end of the stream:', this.buffer);
 			controller.enqueue(this.encoder.encode(this.buffer));
 		}
 	}
 }
 
 // Helper function to forward requests to the Google API
-async function forwardRequest(c: any, credentials: any, projectId: string, model: string, method: string) {
+async function forwardRequest(c: any, credentials: any, projectId: string, model: string, method: string, requestBodyOverride?: any, sse?: boolean) {
 	const client = new OAuth2Client({
 		clientId: OAUTH_CLIENT_ID,
 		clientSecret: OAUTH_CLIENT_SECRET,
@@ -431,7 +438,7 @@ async function forwardRequest(c: any, credentials: any, projectId: string, model
 	const version = process.env.CLI_VERSION || process.version;
 	const userAgent = `GeminiCLI/${version} (${process.platform}; ${process.arch})`;
 
-	const requestBody = await c.req.json();
+	const requestBody = requestBodyOverride ?? await c.req.json();
 	const body = {
 		model: model,
 		project: projectId,
@@ -444,13 +451,9 @@ async function forwardRequest(c: any, credentials: any, projectId: string, model
 	headers.append('Authorization', `Bearer ${refreshedCredentials.access_token}`);
 
 	const url = new URL(`${CODE_ASSIST_ENDPOINT}/${CODE_ASSIST_API_VERSION}:${method}`);
-	const queries = c.req.queries();
-	for (const k in queries) {
-		for (const v of queries[k]) {
-			url.searchParams.append(k, v);
-		}
+	if (sse) {
+		url.searchParams.set('alt', 'sse');
 	}
-	url.searchParams.delete('key');
 
 	const upstreamResponse = await fetch(url, {
 		method: c.req.method,
@@ -461,6 +464,198 @@ async function forwardRequest(c: any, credentials: any, projectId: string, model
 	return { response: upstreamResponse, refreshedCredentials, permanentlyFailed: false };
 }
 
+// Helper function to process the response from Google API for OpenAI compatibility
+async function processUpstreamResponseOpenAI(c: any, upstreamResponse: Response, model: string, stream: boolean, includeUsage: boolean) {
+	if (!upstreamResponse.ok) {
+		return upstreamResponse; // Pass through error responses directly.
+	}
+
+	if (stream) {
+		if (!upstreamResponse.body) {
+			return new Response('Upstream response has no body', { status: 500 });
+		}
+		const unwrapStream = new TransformStream(new SseUnwrapTransformer());
+		const openAiTransformStream = new TransformStream(new GoogleToOpenAiSseTransformer(model, includeUsage));
+
+		const transformedBody = upstreamResponse.body
+			.pipeThrough(unwrapStream)
+			.pipeThrough(openAiTransformStream);
+
+		const responseHeaders = new Headers(upstreamResponse.headers);
+		responseHeaders.set('Content-Type', 'text/event-stream');
+		return new Response(transformedBody, {
+			status: upstreamResponse.status,
+			statusText: upstreamResponse.statusText,
+			headers: responseHeaders,
+		});
+	} else {
+		let respObj: any = await upstreamResponse.json();
+		// The Code Assist API wraps the actual response.
+		if (respObj && typeof respObj === 'object' && respObj.response) {
+			respObj = respObj.response;
+		}
+		const openAIResponse = convertGoogleResponseToOpenAi(respObj, model);
+		return c.json(openAIResponse);
+	}
+}
+
+app.post('/v1/chat/completions', async (c) => {
+	const authHeader = c.req.header('Authorization');
+	const apiKey = authHeader?.split(' ')[1]; // Expecting "Bearer <key>"
+
+	if (!apiKey) {
+		return c.json({ error: 'API key is missing from Authorization header' }, 401);
+	}
+
+	const openAIRequestBody: ChatCompletionCreateParams = await c.req.json();
+	const model = openAIRequestBody.model;
+	const stream = openAIRequestBody.stream ?? false;
+	const method = stream ? 'streamGenerateContent' : 'generateContent';
+	const geminiRequestParams = convertChatCompletionCreateToGemini(openAIRequestBody);
+
+	const {
+		tools, toolConfig,
+		safetySettings,
+		systemInstruction,
+		cachedContent,
+		httpOptions: _httpOptions,
+		abortSignal: _abortSignal,
+		...generateConfig
+	} = geminiRequestParams.config || {};
+
+	const requestBody = {
+		contents: geminiRequestParams.contents,
+		tools: tools,
+		toolConfig: toolConfig,
+		safetySettings: safetySettings,
+		systemInstruction: systemInstruction,
+		generationConfig: generateConfig,
+		cachedContent: cachedContent,
+	};
+
+	try {
+		// Handle Fleet API Key
+		if (apiKey.startsWith(FLEET_KEY_PREFIX)) {
+			const fleetDataString = await c.env.KV.get(`fleet:${apiKey}`);
+			if (!fleetDataString) {
+				return c.json({ error: 'Invalid Fleet API key' }, 401);
+			}
+			let fleetData: FleetData = JSON.parse(fleetDataString);
+			const now = Date.now();
+			let kvNeedsUpdate = false;
+
+			// Lazily update throttled members in memory
+			const activeThrottled: { [userId: string]: number } = {};
+			for (const userId in fleetData.throttled) {
+				if (fleetData.throttled[userId] > now) {
+					activeThrottled[userId] = fleetData.throttled[userId];
+				}
+			}
+			fleetData.throttled = activeThrottled;
+
+			const availableMembers = fleetData.members.filter(m =>
+				!m.permanentlyFailed &&
+				(!fleetData.throttled[m.userId] || fleetData.throttled[m.userId] <= now)
+			);
+
+			if (availableMembers.length === 0) {
+				const permanentlyFailedUserIds = fleetData.members
+					.filter(m => m.permanentlyFailed)
+					.map(m => m.userId);
+				let error = 'All fleet members are currently rate-limited.';
+				if (permanentlyFailedUserIds.length > 0) {
+					error += ` The following members have permanently failed and need re-authorization: ${permanentlyFailedUserIds.join(', ')}.`;
+				}
+				return c.json({ error }, 429);
+			}
+
+			for (const member of availableMembers) {
+				const result = await forwardRequest(c, member.credentials, member.projectId, model, method, requestBody, stream);
+
+				if (result.permanentlyFailed) {
+					member.permanentlyFailed = true;
+					kvNeedsUpdate = true;
+					continue; // Try next member
+				}
+
+				const { response, refreshedCredentials } = result;
+
+				if (refreshedCredentials && refreshedCredentials.access_token !== member.credentials.access_token) {
+					member.credentials = refreshedCredentials;
+					kvNeedsUpdate = true;
+				}
+
+				if (response!.status === 429) {
+					console.log(`Member ${member.userId} was rate-limited. Throttling for ${THROTTLE_DURATION_MS / 1000}s.`);
+					fleetData.throttled[member.userId] = Date.now() + THROTTLE_DURATION_MS;
+					kvNeedsUpdate = true;
+					continue; // Try next member
+				}
+
+				if (kvNeedsUpdate) {
+					c.executionCtx.waitUntil(c.env.KV.put(`fleet:${apiKey}`, JSON.stringify(fleetData)));
+				}
+				const includeUsage = openAIRequestBody.stream_options?.include_usage ?? false;
+				return processUpstreamResponseOpenAI(c, response!, model, stream, includeUsage);
+			}
+
+			if (kvNeedsUpdate) {
+				await c.env.KV.put(`fleet:${apiKey}`, JSON.stringify(fleetData));
+			}
+
+			const permanentlyFailedUserIds = fleetData.members
+				.filter(m => m.permanentlyFailed)
+				.map(m => m.userId);
+			let errorMessage = 'All available fleet members failed due to rate-limiting.';
+			if (permanentlyFailedUserIds.length > 0) {
+				errorMessage += ` The following members have permanently failed and need re-authorization: ${permanentlyFailedUserIds.join(', ')}.`;
+			}
+			return c.json({ error: errorMessage }, 429);
+
+		} else {
+			// Handle Individual API Key
+			const userId = await c.env.KV.get(`apikey:${apiKey}`);
+			if (!userId) {
+				return c.json({ error: 'Invalid API key' }, 401);
+			}
+
+			const userDataString = await c.env.KV.get(userId);
+			if (!userDataString) {
+				return c.json({ error: 'Could not find credentials for user' }, 500);
+			}
+			let userData: UserData = JSON.parse(userDataString);
+
+			if (userData.permanentlyFailed) {
+				return c.json({ error: 'Your API key is no longer valid due to revoked Google authorization. Please register again.' }, 401);
+			}
+
+			const result = await forwardRequest(c, userData.credentials, userData.projectId, model, method, requestBody, stream);
+
+			if (result.permanentlyFailed) {
+				userData.permanentlyFailed = true;
+				c.executionCtx.waitUntil(c.env.KV.put(userId, JSON.stringify(userData)));
+				return c.json({ error: 'Your API key is no longer valid due to revoked Google authorization. Please register again.' }, 401);
+			}
+
+			const { response, refreshedCredentials } = result;
+
+			if (refreshedCredentials && refreshedCredentials.access_token !== userData.credentials.access_token) {
+				userData.credentials = refreshedCredentials;
+				c.executionCtx.waitUntil(c.env.KV.put(userId, JSON.stringify(userData)));
+			}
+			const includeUsage = openAIRequestBody.stream_options?.include_usage ?? false;
+			return processUpstreamResponseOpenAI(c, response!, model, stream, includeUsage);
+		}
+	} catch (e: any) {
+		console.error('Error processing request:', e);
+		if (e.response && e.response.status) {
+			return c.json({ error: 'Google API error', details: e.response.data }, e.response.status);
+		} else {
+			return c.json({ error: 'Failed to forward request', details: e.message }, 500);
+		}
+	}
+});
+
 app.post('/v1beta/models/:modelAndMethod{[a-zA-Z0-9.-]+:[a-zA-Z]+}', async (c) => {
 	const apiKey = c.req.query('key') || c.req.header('x-goog-api-key');
 	if (!apiKey) {
@@ -469,7 +664,8 @@ app.post('/v1beta/models/:modelAndMethod{[a-zA-Z0-9.-]+:[a-zA-Z]+}', async (c) =
 
 	const modelAndMethod = c.req.param('modelAndMethod');
 	const [model, method] = modelAndMethod.split(':');
-	console.log(`model: ${model}, method: ${method}`);
+	const sse = c.req.query('alt') === 'sse';
+	console.log(`model: ${model}, method: ${method}, queries: ${JSON.stringify(c.req.queries())}, sse: ${sse}`);
 
 	try {
 		// Handle Fleet API Key
@@ -510,7 +706,7 @@ app.post('/v1beta/models/:modelAndMethod{[a-zA-Z0-9.-]+:[a-zA-Z]+}', async (c) =
 			}
 
 			for (const member of availableMembers) {
-				const result = await forwardRequest(c, member.credentials, member.projectId, model, method);
+				const result = await forwardRequest(c, member.credentials, member.projectId, model, method, undefined, sse);
 
 				if (result.permanentlyFailed) {
 					member.permanentlyFailed = true;
@@ -569,7 +765,7 @@ app.post('/v1beta/models/:modelAndMethod{[a-zA-Z0-9.-]+:[a-zA-Z]+}', async (c) =
 				return c.json({ error: 'Your API key is no longer valid due to revoked Google authorization. Please register again.' }, 401);
 			}
 
-			const result = await forwardRequest(c, userData.credentials, userData.projectId, model, method);
+			const result = await forwardRequest(c, userData.credentials, userData.projectId, model, method, undefined, sse);
 
 			if (result.permanentlyFailed) {
 				userData.permanentlyFailed = true;

@@ -78,6 +78,10 @@
         .message-content {
             padding-bottom: 15px; /* Space for timestamp */
         }
+        /* Add min-height when the spinner is present to prevent overlap */
+        .message-content:has(.loading-spinner-container) {
+            min-height: 30px;
+        }
         .message-timestamp {
             position: absolute;
             bottom: 5px;
@@ -160,7 +164,7 @@
         }
 
         /* General input and button styling */
-        input[type="text"], select {
+        input[type="text"], select, textarea {
             width: 100%;
             padding: 10px 12px;
             margin-top: 8px;
@@ -170,9 +174,10 @@
             font-size: 1rem;
             color: #37474f;
             transition: border-color 0.3s, box-shadow 0.3s;
+            font-family: inherit;
         }
 
-        input[type="text"]:focus, select:focus {
+        input[type="text"]:focus, select:focus, textarea:focus {
             border-color: #42a5f5;
             box-shadow: 0 0 0 3px rgba(66, 165, 245, 0.2);
             outline: none;
@@ -206,9 +211,9 @@
             flex-wrap: wrap; /* Allow wrapping on smaller screens */
         }
 
-        .api-key-section, .model-selection-section {
+        .api-key-section, .model-selection-section, .api-protocol-section {
             flex: 1; /* Allow sections to grow and shrink */
-            min-width: 300px; /* Minimum width before wrapping */
+            min-width: 250px; /* Adjust min-width for three items */
             background-color: #f5f5f5;
             padding: 15px;
             border-radius: 8px;
@@ -217,7 +222,7 @@
             flex-direction: column;
         }
 
-        .api-key-section h2, .model-selection-section h2 {
+        .api-key-section h2, .model-selection-section h2, .api-protocol-section h2 {
             margin-top: 0;
             margin-bottom: 10px;
         }
@@ -244,9 +249,10 @@
         #attach-image-button {
             flex-shrink: 0;
             background-color: #607d8b; /* Different color for attach button */
-            border-radius: 25px; /* More rounded */
-            padding: 12px 15px; /* Slightly larger padding */
+            border-radius: 20px;
             font-size: 1rem;
+            height: 40px;
+            padding: 0 15px;
         }
 
         #attach-image-button:hover {
@@ -271,11 +277,21 @@
 
         #chat-input {
             flex-grow: 1;
-            margin-top: 0;
+            margin: 0;
+            resize: none; /* Disable manual resizing */
+            overflow-y: hidden; /* Hide scrollbar until needed */
+            padding: 10px 15px;
+            border-radius: 20px;
+            line-height: 1.5;
+            min-height: 40px;
+            box-sizing: border-box;
         }
 
         #send-button {
             flex-shrink: 0;
+            border-radius: 20px;
+            height: 40px;
+            padding: 0 15px;
         }
 
         /* Responsive adjustments */
@@ -326,9 +342,15 @@
             <div class="model-selection-section">
                 <h2>Select Model</h2>
                 <select id="model-select">
-                    <option value="gemini-2.5-pro">Gemini 2.5 Pro</option>
-                    <option value="gemini-2.5-flash" selected>Gemini 2.5 Flash</option>
-                    <option value="gemini-2.5-flash-lite">Gemini 2.5 Flash Lite</option>
+                    <!-- Models will be populated by JavaScript -->
+                </select>
+            </div>
+
+            <div class="api-protocol-section">
+                <h2>API Protocol</h2>
+                <select id="api-protocol-select">
+                    <option value="gemini" selected>Gemini (Native)</option>
+                    <option value="openai">OpenAI (Compatible)</option>
                 </select>
             </div>
         </div>
@@ -343,19 +365,29 @@
         <div class="input-area">
             <input type="file" id="image-input" accept="image/*" style="display: none;">
             <button id="attach-image-button">Attach Image</button>
-            <input type="text" id="chat-input" placeholder="Type your message...">
+            <textarea id="chat-input" placeholder="Type your message..." rows="1"></textarea>
             <button id="send-button">Send</button>
         </div>
     </div>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
     <script>
+        // --- Model Configuration ---
+        const MODELS = [
+            { value: 'gemini-2.5-pro', displayName: 'Gemini 2.5 Pro' },
+            { value: 'gemini-2.5-flash', displayName: 'Gemini 2.5 Flash' },
+            { value: 'gemini-2.5-flash-lite', displayName: 'Gemini 2.5 Flash Lite' },
+            // Add more models here in the future
+        ];
+        const DEFAULT_MODEL = 'gemini-2.5-flash';
+
         const apiKeyInput = document.getElementById('api-key-input');
         const saveKeyButton = document.getElementById('save-key-button');
         const chatWindow = document.getElementById('chat-window');
         const chatInput = document.getElementById('chat-input');
         const sendButton = document.getElementById('send-button');
         const modelSelect = document.getElementById('model-select');
+        const apiProtocolSelect = document.getElementById('api-protocol-select');
         const imageInput = document.getElementById('image-input');
         const attachImageButton = document.getElementById('attach-image-button');
         const imagePreviewContainer = document.getElementById('image-preview-container');
@@ -380,6 +412,20 @@
                 conversationHistory = JSON.parse(savedHistory);
                 renderChatHistory(); // Render messages from loaded history
             }
+        }
+
+        // --- UI Initialization ---
+        function populateModelSelect() {
+            modelSelect.innerHTML = ''; // Clear existing options
+            MODELS.forEach(model => {
+                const option = document.createElement('option');
+                option.value = model.value;
+                option.textContent = model.displayName;
+                if (model.value === DEFAULT_MODEL) {
+                    option.selected = true;
+                }
+                modelSelect.appendChild(option);
+            });
         }
 
         attachImageButton.addEventListener('click', () => {
@@ -422,6 +468,12 @@
             apiKeyInput.value = savedApiKey;
         }
 
+        // Load API protocol from localStorage
+        const savedApiProtocol = localStorage.getItem('apiProtocol');
+        if (savedApiProtocol) {
+            apiProtocolSelect.value = savedApiProtocol;
+        }
+
         saveKeyButton.addEventListener('click', () => {
             const key = apiKeyInput.value;
             if (key) {
@@ -432,11 +484,21 @@
             }
         });
 
+        apiProtocolSelect.addEventListener('change', () => {
+            localStorage.setItem('apiProtocol', apiProtocolSelect.value);
+        });
+
         sendButton.addEventListener('click', sendMessage);
-        chatInput.addEventListener('keypress', (e) => {
-            if (e.key === 'Enter') {
+        chatInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault(); // Prevent new line
                 sendMessage();
             }
+        });
+
+        chatInput.addEventListener('input', () => {
+            chatInput.style.height = 'auto';
+            chatInput.style.height = (chatInput.scrollHeight) + 'px';
         });
 
         chatInput.addEventListener('paste', (event) => {
@@ -465,6 +527,107 @@
             }
         });
 
+        async function processOpenAIResponse(history, botMessageElement, isRetry = false) {
+            const apiKey = apiKeyInput.value;
+            const selectedModel = modelSelect.value;
+
+            if (isRetry) {
+                const contentDiv = botMessageElement.querySelector('.message-content');
+                if (contentDiv) contentDiv.innerHTML = '';
+            }
+
+            let botMessage = '';
+            const contentDiv = botMessageElement.querySelector('.message-content');
+            if (!contentDiv) return;
+
+            const spinnerContainer = createSpinner();
+            contentDiv.appendChild(spinnerContainer);
+            const timeDisplay = spinnerContainer.querySelector('.time-display'); // Select by specific class
+
+            let startTime = Date.now();
+            let timerInterval = setInterval(() => {
+                timeDisplay.textContent = `${((Date.now() - startTime) / 1000).toFixed(1)}s`;
+            }, 100);
+
+            let hasError = false;
+
+            try {
+                const openAIHistory = history.map(msg => {
+                    // Convert Gemini format to OpenAI message format
+                    const role = msg.role === 'model' ? 'assistant' : 'user';
+                    const content = msg.parts.map(part => {
+                        if (part.text) return { type: 'text', text: part.text };
+                        if (part.inlineData) return {
+                            type: 'image_url',
+                            image_url: { url: `data:${part.inlineData.mimeType};base64,${part.inlineData.data}` }
+                        };
+                        return null;
+                    }).filter(p => p);
+                    return { role, content };
+                });
+
+                const response = await fetch('/v1/chat/completions', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${apiKey}`
+                    },
+                    body: JSON.stringify({
+                        model: selectedModel,
+                        messages: openAIHistory,
+                        stream: true,
+                        stream_options: { include_usage: true }
+                    })
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.error?.message || JSON.stringify(errorData));
+                }
+
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+
+                    const chunk = decoder.decode(value, { stream: true });
+                    const lines = chunk.split('\n\n');
+
+                    for (const line of lines) {
+                        if (line.startsWith('data: ')) {
+                            const dataStr = line.substring(6);
+                            if (dataStr.trim() === '[DONE]') break;
+                            try {
+                                const data = JSON.parse(dataStr);
+                                // Handle content chunks
+                                if (data.choices && data.choices.length > 0 && data.choices[0].delta && data.choices[0].delta.content) {
+                                    botMessage += data.choices[0].delta.content;
+                                    contentDiv.innerHTML = marked.parse(botMessage);
+                                    contentDiv.prepend(spinnerContainer);
+                                    hljs.highlightAll();
+                                    chatWindow.scrollTop = chatWindow.scrollHeight;
+                                }
+                                // Handle usage chunk and ignore it for rendering
+                                else if (data.usage) {
+                                    console.log('Usage data received:', data.usage);
+                                }
+                            } catch (e) {
+                                console.error('Error parsing OpenAI stream data:', e, dataStr);
+                            }
+                        }
+                    }
+                }
+                updateHistoryAndRender(botMessage, selectedModel, isRetry);
+            } catch (error) {
+                hasError = true;
+                handleResponseError(error, selectedModel, isRetry, contentDiv, timerInterval);
+            } finally {
+                cleanupAfterResponse(timerInterval, contentDiv, hasError, startTime);
+            }
+        }
+
         async function processGeminiResponse(history, botMessageElement, isRetry = false) {
             const apiKey = apiKeyInput.value;
             const selectedModel = modelSelect.value;
@@ -487,22 +650,9 @@
                 return;
             }
 
-            const spinnerContainer = document.createElement('span');
-            spinnerContainer.id = 'loading-spinner-in-message';
-            spinnerContainer.style.display = 'flex';
-            spinnerContainer.style.alignItems = 'center';
-            spinnerContainer.style.marginBottom = '5px'; // Add some space below spinner
-
-            const spinner = document.createElement('span');
-            spinner.className = 'loading-spinner'; // Apply CSS class for spinner
-            spinnerContainer.appendChild(spinner);
-
-            const timeDisplay = document.createElement('span');
-            timeDisplay.style.marginLeft = '5px';
-            timeDisplay.textContent = '0.0s';
-            spinnerContainer.appendChild(timeDisplay);
-
+            const spinnerContainer = createSpinner();
             contentDiv.appendChild(spinnerContainer);
+            const timeDisplay = spinnerContainer.querySelector('.time-display'); // Select by specific class
 
 
             let startTime = Date.now();
@@ -566,115 +716,106 @@
                         }
                     }
                 }
-                // Update conversation history with the successful response
-                // The `history` parameter here is already the `apiData` array
-                // We need to reconstruct the full message object for `conversationHistory`
-                const successfulBotMessage = {
-                    apiData: {
-                        role: 'model',
-                        parts: [{ text: botMessage }]
-                    },
-                    metadata: {
-                        timestamp: new Date().toISOString(),
-                        model: selectedModel
-                    }
-                };
+                updateHistoryAndRender(botMessage, selectedModel, isRetry);
+            } catch (error) {
+                hasError = true;
+                handleResponseError(error, selectedModel, isRetry, contentDiv, timerInterval);
+            } finally {
+                cleanupAfterResponse(timerInterval, contentDiv, hasError, startTime);
+            }
+        }
 
-                if (isRetry) {
-                    // If it's a retry, replace the last message (which was the error)
-                    // This assumes the last message in history is the one we're retrying or the previous error.
-                    const lastBotMessageIndex = conversationHistory.length - 1;
-                    if (lastBotMessageIndex >= 0 && conversationHistory[lastBotMessageIndex].apiData.role === 'model') {
-                        conversationHistory[lastBotMessageIndex] = successfulBotMessage;
-                    } else {
-                        conversationHistory.push(successfulBotMessage);
-                    }
+        function createSpinner() {
+            const spinnerContainer = document.createElement('span');
+            spinnerContainer.className = 'loading-spinner-container';
+            spinnerContainer.style.display = 'flex';
+            spinnerContainer.style.alignItems = 'center';
+            spinnerContainer.style.marginBottom = '5px';
+
+            const spinner = document.createElement('span');
+            spinner.className = 'loading-spinner';
+            spinnerContainer.appendChild(spinner);
+
+            const timeDisplay = document.createElement('span');
+            timeDisplay.className = 'time-display'; // Add a specific class
+            timeDisplay.style.marginLeft = '5px';
+            timeDisplay.textContent = '0.0s';
+            spinnerContainer.appendChild(timeDisplay);
+
+            return spinnerContainer;
+        }
+
+        function updateHistoryAndRender(botMessage, model, isRetry) {
+            const successfulBotMessage = {
+                apiData: { role: 'model', parts: [{ text: botMessage }] },
+                metadata: { timestamp: new Date().toISOString(), model: model }
+            };
+
+            if (isRetry) {
+                const lastBotMessageIndex = conversationHistory.length - 1;
+                if (lastBotMessageIndex >= 0 && conversationHistory[lastBotMessageIndex].apiData.role === 'model') {
+                    conversationHistory[lastBotMessageIndex] = successfulBotMessage;
                 } else {
                     conversationHistory.push(successfulBotMessage);
                 }
-                saveChatHistory(); // Save history after each bot message
-                renderChatHistory(); // Re-render the entire chat history
+            } else {
+                conversationHistory.push(successfulBotMessage);
+            }
+            saveChatHistory();
+            renderChatHistory();
+        }
 
-            } catch (error) {
-                console.error('Error:', error);
-                clearInterval(timerInterval); // Stop the timer
+        function handleResponseError(error, model, isRetry, contentDiv, timerInterval) {
+            console.error('Error:', error);
+            clearInterval(timerInterval);
 
-                // Remove the spinner
-                const currentSpinnerContainer = contentDiv.querySelector('#loading-spinner-in-message');
-                if (currentSpinnerContainer) {
-                    currentSpinnerContainer.remove();
-                }
+            const spinner = contentDiv.querySelector('.loading-spinner-container');
+            if (spinner) spinner.remove();
 
-                // Display error message
-                let errorMessage = 'An unknown error occurred.';
-                if (error instanceof Error) {
-                    errorMessage = error.message;
-                } else if (typeof error === 'object' && error !== null) {
-                    errorMessage = JSON.stringify(error);
-                } else if (typeof error === 'string') {
-                    errorMessage = error;
-                }
-                const errorText = `Error: ${errorMessage}`;
-                contentDiv.innerHTML = marked.parse(errorText); // Render error as Markdown
+            const errorMessage = error instanceof Error ? error.message : JSON.stringify(error);
+            const errorText = `Error: ${errorMessage}`;
+            contentDiv.innerHTML = marked.parse(errorText);
 
-                hasError = true; // Set error flag
+            const errorHistoryObject = {
+                apiData: { role: 'model', parts: [{ text: errorText }] },
+                metadata: { timestamp: new Date().toISOString(), model: model, isError: true }
+            };
 
-                // Save the error message to conversation history
-                const errorHistoryObject = {
-                    apiData: {
-                        role: 'model',
-                        parts: [{ text: errorText }]
-                    },
-                    metadata: {
-                        timestamp: new Date().toISOString(),
-                        model: selectedModel,
-                        isError: true // Mark this message as an error
-                    }
-                };
-
-                // If it's a retry, replace the last message (which was the previous error or partial response)
-                // Otherwise, push it as a new message
-                if (isRetry) {
-                    // Find the index of the message that triggered the retry (usually the last bot message)
-                    // and replace it with the new error message.
-                    // This assumes the last message in history is the one we're retrying or the previous error.
-                    const lastBotMessageIndex = conversationHistory.length - 1;
-                    if (lastBotMessageIndex >= 0 && conversationHistory[lastBotMessageIndex].apiData.role === 'model') {
-                        conversationHistory[lastBotMessageIndex] = errorHistoryObject;
-                    } else {
-                        conversationHistory.push(errorHistoryObject);
-                    }
+            if (isRetry) {
+                const lastBotMessageIndex = conversationHistory.length - 1;
+                if (lastBotMessageIndex >= 0 && conversationHistory[lastBotMessageIndex].apiData.role === 'model') {
+                    conversationHistory[lastBotMessageIndex] = errorHistoryObject;
                 } else {
                     conversationHistory.push(errorHistoryObject);
                 }
-                saveChatHistory(); // Save history after adding the error message
-                renderChatHistory(); // Re-render the entire chat history
+            } else {
+                conversationHistory.push(errorHistoryObject);
+            }
+            saveChatHistory();
+            renderChatHistory();
+        }
 
-            } finally {
-                clearInterval(timerInterval); // Ensure timer is cleared
-                // Remove the spinner and time display from the bot message element if it's still there
-                const currentSpinnerContainer = contentDiv.querySelector('#loading-spinner-in-message');
-                if (currentSpinnerContainer) {
-                    currentSpinnerContainer.remove();
-                }
-                // Append the final elapsed time to the message if it's not an error
-                if (!hasError) { // Check the flag instead of the error variable
-                    const finalElapsedTime = (Date.now() - startTime) / 1000;
-                    const finalTimeSpan = document.createElement('span');
-                    finalTimeSpan.className = 'message-timestamp'; // Use the same class for consistent styling
-                    finalTimeSpan.style.position = 'static'; // Override absolute positioning for inline display
-                    finalTimeSpan.style.display = 'inline-block'; // Allow margin
-                    finalTimeSpan.style.marginLeft = '10px';
-                    finalTimeSpan.textContent = `(${finalElapsedTime.toFixed(1)}s)`;
-                    contentDiv.appendChild(finalTimeSpan);
-                }
+        function cleanupAfterResponse(timerInterval, contentDiv, hasError, startTime) {
+            clearInterval(timerInterval);
+            const spinner = contentDiv.querySelector('.loading-spinner-container');
+            if (spinner) spinner.remove();
+
+            if (!hasError) {
+                const finalElapsedTime = (Date.now() - startTime) / 1000;
+                const finalTimeSpan = document.createElement('span');
+                finalTimeSpan.className = 'message-timestamp';
+                finalTimeSpan.style.position = 'static';
+                finalTimeSpan.style.display = 'inline-block';
+                finalTimeSpan.style.marginLeft = '10px';
+                finalTimeSpan.textContent = `(${finalElapsedTime.toFixed(1)}s)`;
+                contentDiv.appendChild(finalTimeSpan);
             }
         }
 
         async function sendMessage() {
             const message = chatInput.value;
-            const apiKey = apiKeyInput.value; // Not directly used here, but kept for consistency
-            const selectedModel = modelSelect.value; // Not directly used here, but kept for consistency
+            const selectedModel = modelSelect.value;
+            const selectedProtocol = apiProtocolSelect.value;
 
             // Wait for any pending image load to complete
             await imageLoadPromise;
@@ -730,14 +871,22 @@
 
             // Clear input fields and attached image data AFTER constructing userContent
             chatInput.value = '';
+            chatInput.style.height = 'auto'; // Reset height
             imageInput.value = ''; // Clear file input
             imagePreviewContainer.style.display = 'none'; // Hide preview
             attachedImage = null; // Clear attached image
 
-            // The botMessageElement is now passed to processGeminiResponse for initial loading spinner display
-            // It will be re-rendered by renderChatHistory after the response is complete.
-            const botMessageElement = appendMessage({ apiData: { role: 'model', parts: [{ text: '' }] }, metadata: { timestamp: new Date().toISOString(), model: selectedModel } });
-            await processGeminiResponse(historyForApi, botMessageElement);
+            // The botMessageElement is now passed to the appropriate processor function
+            const botMessageElement = appendMessage({
+                apiData: { role: 'model', parts: [{ text: '' }] },
+                metadata: { timestamp: new Date().toISOString(), model: selectedModel }
+            });
+
+            if (selectedProtocol === 'openai') {
+                await processOpenAIResponse(historyForApi, botMessageElement);
+            } else {
+                await processGeminiResponse(historyForApi, botMessageElement);
+            }
         }
 
         function appendMessage(messageObject) {
@@ -845,10 +994,13 @@
                     retryButton.style.borderRadius = '5px';
                     retryButton.style.cursor = 'pointer';
                     retryButton.onclick = () => {
-                        // Reconstruct history up to this message (excluding the error message itself)
                         const historyBeforeError = conversationHistory.slice(0, index).map(msg => msg.apiData);
-                        // Pass the current message element to processGeminiResponse so it can update it
-                        processGeminiResponse(historyBeforeError, messageElement, true);
+                        const selectedProtocol = localStorage.getItem('apiProtocol') || 'gemini';
+                        if (selectedProtocol === 'openai') {
+                            processOpenAIResponse(historyBeforeError, messageElement, true);
+                        } else {
+                            processGeminiResponse(historyBeforeError, messageElement, true);
+                        }
                     };
                     contentDiv.appendChild(retryButton);
                 }
@@ -870,6 +1022,7 @@
 
         // Load chat history on page load
         loadChatHistory();
+        populateModelSelect();
     </script>
 </body>
 </html>

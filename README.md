@@ -157,6 +157,7 @@ curl -X POST "<your_endpoint_url>/v1beta/models/gemini-2.5-flash:generateContent
      -H "Content-Type: application/json" \
      -d '{
            "contents": [{
+             "role": "user",
              "parts":[{"text": "Hello, tell me about yourself."}]
            }]
          }'

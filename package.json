@@ -10,8 +10,10 @@
 		"cf-typegen": "wrangler types"
 	},
 	"dependencies": {
+		"@google/genai": "^1.8.0",
 		"google-auth-library": "^9.11.0",
-		"hono": "^4.4.12"
+		"hono": "^4.4.12",
+		"openai": "^5.8.2"
 	},
 	"devDependencies": {
 		"@cloudflare/vitest-pool-workers": "^0.8.19",
