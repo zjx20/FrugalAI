@@ -6,61 +6,102 @@ This document provides essential context about the "Gemini Free API Proxy" proje
 
 This project is a Cloudflare Worker that acts as a proxy to the Google Gemini API. It exposes a public API endpoint that is compatible with the official Google GenAI API specification. Internally, it translates incoming requests to the format required by the Google Code Assist API, effectively enabling free access to Gemini models.
 
-The core of the project involves a user authorization flow that uses OAuth2 to obtain Google API credentials. These credentials are then securely stored in a Cloudflare KV namespace. Each user is issued a unique API key to access the service.
-
-A new "API Key Fleet" feature has been introduced, allowing multiple OAuth accounts to be grouped under a single public API key. This enables intelligent rotation through accounts to manage rate limits more effectively.
+The project has been refactored to use a **Cloudflare D1 database** via the **Prisma ORM** for data persistence, replacing the previous KV-based storage for user and key management. It provides a self-service web UI for users to register and manage their API keys.
 
 ## 2. Core Components
 
--   **`src/index.ts`**: The main Cloudflare Worker script, built with Hono. It handles all API routing, including:
-    -   `/register`: An internal endpoint for the authorization script to register user credentials and generate an API key.
-    -   `/revoke`: An endpoint for users to revoke their authorization and delete their data.
-    -   `/v1beta/models/*`: The main proxy endpoint that forwards user requests to the Google API after validating the API key and refreshing OAuth tokens.
--   **`authorize.mjs`**: A command-line Node.js script that guides the user through the Google OAuth2 flow. It requires an `--endpoint` parameter pointing to the running worker. Upon successful authorization, it communicates directly with the `/register` endpoint to obtain and display the final API key for the user.
--   **`public/index.html`**: A simple, static web page that serves as a chat interface for testing the service. It requires the user to input their API key, which is then stored in the browser's local storage.
--   **`wrangler.jsonc`**: The configuration file for the Cloudflare Worker, including the necessary KV namespace binding.
+-   **`src/index.ts`**: The main Cloudflare Worker script, built with Hono. It serves as the main entry point, routing API traffic and serving the user management UI.
+-   **`src/db.ts`**: A data access layer class (`Database`) that encapsulates all Prisma database operations. It is instantiated per-request with a `PrismaClient` instance to ensure compatibility with the Cloudflare Workers environment.
+-   **`src/user.ts`**: A Hono application that handles all user management API endpoints (e.g., `/api/user/register`, `/api/user/keys`). It is mounted as a route in `src/index.ts`.
+-   **`prisma/schema.prisma`**: The single source of truth for the database schema. It defines all models (User, ApiKey, Provider), fields, and relations.
+-   **`public/user.html` & `public/user.js`**: A simple frontend for user self-service (registration, API key management). The HTML is served from `src/index.ts`, and the JavaScript communicates with the backend API.
+-   **`authorize.mjs`**: A command-line Node.js script that guides the user through the Google OAuth2 flow for the original proxy functionality.
+-   **`wrangler.jsonc`**: The configuration file for the Cloudflare Worker, including bindings for the KV namespace and the D1 database.
 
 ## 3. Key Workflows
 
-### 3.1. Authorization and API Key Generation
+### 3.1. User Self-Service Management (New)
 
-The process for a user to obtain an API key has been expanded to support individual keys and fleet keys:
+A web interface is available for users to manage their accounts without using the CLI.
+
+1.  The user navigates to the root URL of the worker.
+2.  `src/index.ts` serves the user management page (`public/user.html`) and its assets.
+3.  The frontend (`public/user.js`) communicates with the API endpoints exposed by `src/user.ts` (mounted under `/api`) to handle:
+    -   **Registration**: Creates a new user in the D1 database and returns a user-specific API token (`sk-...`).
+    -   **API Key Management**: Allows authenticated users (using the Bearer token) to perform CRUD operations on their API keys for various providers.
+
+### 3.2. Original Authorization and API Key Generation
+
+The process for a user to obtain an API key for the core proxy functionality remains.
 
 1.  The user runs the Cloudflare Worker, either locally (`npm run dev`) or by deploying it (`npm run deploy`), to get a service **Endpoint URL**.
+2.  The user runs the `authorize.mjs` script from their terminal, providing the endpoint URL.
+3.  The script handles the OAuth2 consent flow, receives authorization tokens, and communicates with the worker to register or update credentials in KV. The final API key is printed to the user's console.
 
-2.  The user runs the `authorize.mjs` script from their terminal, providing the endpoint URL and optionally specifying the type of key to generate:
+### 3.3. API Request Flow (Core Proxy)
 
-    *   **For an Individual API Key:**
-        ```bash
-        node authorize.mjs --endpoint=<your_endpoint_url>
-        ```
-        The script opens a browser for the Google OAuth2 consent flow. After authorization, it sends the credentials to the worker's `/register` endpoint. The worker generates a unique API key, stores user data in KV, and returns the key to the script, which then prints it to the console.
+1.  A user makes a request to the proxy endpoint (e.g., `/v1beta/models/gemini-2.5-flash:generateContent`), providing their API key.
+2.  The worker retrieves credentials from KV using the API key.
+3.  The worker refreshes the `access_token` if necessary.
+4.  The worker forwards the request to the internal Google Code Assist API, handling fleet key rotation and rate-limiting logic.
+5.  The response is translated back to the standard Gemini API format and returned to the user.
 
-    *   **For a New Fleet API Key (and setting the Captain):**
-        ```bash
-        node authorize.mjs --endpoint=<your_endpoint_url> --register-fleet
-        ```
-        The script initiates the OAuth2 flow. The authorized Google account's credentials are then sent to the worker's `/fleet/register` endpoint. The worker creates a new fleet, assigns the authorized account as its first member (captain), generates a `fleet-` prefixed API key, and stores the fleet data in KV. The new fleet API key is then printed to the console.
+## 4. Database Development Workflow (Prisma & D1)
 
-    *   **To Add a Member to an Existing Fleet:**
-        ```bash
-        node authorize.mjs --endpoint=<your_endpoint_url> --fleet-api-key=<YOUR_FLEET_API_KEY>
-        ```
-        The script performs the OAuth2 flow for the new member's Google account. The authorized credentials are then sent to the worker's `/fleet/add` endpoint, along with the provided `YOUR_FLEET_API_KEY`. The worker adds the new member's credentials to the specified fleet's data in KV.
+This section details the correct, multi-step process for modifying the database schema, which is crucial for the agent to follow.
 
-3.  In all cases, the script handles the OAuth2 consent flow, receives authorization tokens, and communicates with the worker to register or update credentials. The final API key (individual or fleet) is printed to the user's console.
+#### Step 1: Modify `prisma/schema.prisma`
 
-### 3.2. API Request Flow
+This file is the single source of truth for database models. Make all schema changes here.
 
-1.  A user makes a request to the proxy endpoint (e.g., `/v1beta/models/gemini-2.5-flash:generateContent`), providing their API key in the `?key=` query parameter.
-2.  The worker retrieves the `userId` from KV using the API key.
-3.  It then retrieves the user's stored credentials (OAuth tokens) using the `userId`.
-4.  The worker refreshes the `access_token` if necessary.
-5.  **For Individual API Keys:** The worker uses the individual user's credentials to forward the request to the internal Google Code Assist API.
-6.  **For Fleet API Keys:** The worker intelligently selects an available member from the fleet. If a member encounters a 429 (Too Many Requests) error, it is temporarily throttled, and the worker attempts the request with another available member. The selected member's credentials are used to forward the request.
-7.  The response is translated back to the standard Gemini API format and returned to the user.
+#### Step 2: Create an Empty Migration File
 
-## 4. Agent Guidelines
+Use Wrangler to create the migration folder and empty `.sql` file.
+
+```bash
+npx wrangler d1 migrations create <YOUR_DATABASE_NAME> <your_migration_name>
+```
+-   `<YOUR_DATABASE_NAME>` is the binding name in `wrangler.jsonc`.
+-   `<your_migration_name>` should be descriptive (e.g., `add_apikey_notes`).
+
+#### Step 3: Generate SQL Diff
+
+Use Prisma to generate the SQL commands by comparing the local D1 database state with the updated schema. The output must be piped into the file created in the previous step.
+
+```bash
+npx prisma migrate diff \
+  --from-local-d1 \
+  --to-schema-datamodel ./prisma/schema.prisma \
+  --script \
+  --output ./migrations/<000X_your_migration_name>/migration.sql
+```
+-   The agent must replace the `--output` path with the correct, newly generated migration file path.
+
+#### Step 4: Apply Migration to Local DB & Regenerate Client
+
+Apply the migration to the local D1 instance to keep it synchronized. **This step is critical** for future `diff` operations.
+
+```bash
+npx wrangler d1 migrations apply <YOUR_DATABASE_NAME> --local
+```
+
+After applying the migration, regenerate the Prisma Client to update its types.
+
+```bash
+npx prisma generate
+```
+
+#### Step 5: Apply Migration to Production DB
+
+After local testing is complete, apply the migration to the production D1 database.
+
+```bash
+npx wrangler d1 migrations apply <YOUR_DATABASE_NAME> --remote
+```
+
+This workflow ensures that schema changes are version-controlled and applied consistently across all environments.
+
+## 5. Agent Guidelines
 
 This section outlines the operational guidelines for the Gemini CLI Agent when interacting with this project.
 

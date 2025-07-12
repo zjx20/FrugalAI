@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { OAuth2Client } from 'google-auth-library';
 import { ChatCompletionCreateParams } from 'openai/resources/chat/completions';
+import userApp from './user';
 import {
 	convertChatCompletionCreateToGemini,
 	convertGoogleResponseToOpenAi,
@@ -17,6 +18,7 @@ const FLEET_KEY_PREFIX = 'fleet-';
 
 export interface Env {
 	KV: KVNamespace;
+	DB: D1Database;
 }
 
 // Define interfaces for better type safety
@@ -40,6 +42,9 @@ interface FleetData {
 }
 
 const app = new Hono<{ Bindings: Env }>();
+
+// Route for user management API
+app.route('/api', userApp);
 
 app.post('/register', async (c) => {
 	try {

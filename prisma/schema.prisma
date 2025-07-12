@@ -1,0 +1,47 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider        = "prisma-client-js"
+  output          = "../src/generated/prisma"
+  previewFeatures = ["driverAdapters"]
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id    Int     @id @default(autoincrement())
+  token String  @unique
+  name  String?
+
+  keys ApiKey[]
+}
+
+model ApiKey {
+  id           Int      @id @default(autoincrement())
+  provider     Provider @relation(fields: [providerName], references: [name])
+  providerName String
+  owner        User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  ownerId      Int
+  keyData      Json
+  throttleData Json
+  notes        String?
+}
+
+enum ThrottleMode {
+  BY_MODEL
+  BY_KEY
+}
+
+model Provider {
+  name                String       @id
+  throttleMode        ThrottleMode @default(BY_KEY)
+  minThrottleDuration Int          @default(1)
+  maxThrottleDuration Int          @default(15)
+  models              Json // array of model names
+
+  keys ApiKey[]
+}

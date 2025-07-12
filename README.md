@@ -185,3 +185,88 @@ To set this up, find the API settings in your tool of choice and configure the f
 -   **API Key:** The `YOUR_API_KEY` you obtained from the `authorize.mjs` script. This can be either an individual API key or a Fleet API key.
 
 Once configured, the tool will communicate with this proxy, allowing you to use its features powered by Gemini at no cost.
+
+---
+
+## Database Development with Prisma and Cloudflare D1
+
+This project uses [Prisma](https://www.prisma.io/) as its ORM to interact with a [Cloudflare D1](https://developers.cloudflare.com/d1/) database. This section outlines the correct development workflow for modifying the database schema and managing migrations, following Cloudflare's recommended practices.
+
+### 1. Prerequisites
+
+Ensure you have [Wrangler](https://developers.cloudflare.com/workers/wrangler/install-and-update/), the Cloudflare CLI, installed and authenticated.
+
+### 2. Development Workflow
+
+Here is the step-by-step process for making schema changes:
+
+#### Step 1: Modify the Prisma Schema
+
+Edit the `prisma/schema.prisma` file to reflect your desired database changes (e.g., adding a model, updating a field).
+
+```prisma
+// prisma/schema.prisma
+model ApiKey {
+  // ... existing fields
+  notes        String? // Add a new optional 'notes' field
+}
+```
+
+#### Step 2: Create a New Migration File
+
+Use Wrangler to create a new, empty migration file.
+
+```bash
+npx wrangler d1 migrations create <YOUR_DATABASE_NAME> <your_migration_name>
+```
+
+-   Replace `<YOUR_DATABASE_NAME>` with the name of your D1 database binding from `wrangler.jsonc`.
+-   Replace `<your_migration_name>` with a descriptive name (e.g., `add_apikey_notes`).
+
+This command creates a new folder in the `migrations` directory containing an empty `.sql` file.
+
+#### Step 3: Generate the SQL for the Migration
+
+Use Prisma to compare your current local database state with your updated `schema.prisma` file and generate the necessary SQL. The output will be written directly into the empty migration file you just created.
+
+```bash
+npx prisma migrate diff \
+  --from-local-d1 \
+  --to-schema-datamodel ./prisma/schema.prisma \
+  --script \
+  --output ./migrations/<000X_your_migration_name>/migration.sql
+```
+
+-   Make sure to replace the `--output` path with the correct path to the SQL file generated in Step 2.
+
+#### Step 4: Apply the Migration Locally
+
+Apply the newly generated migration to your local D1 database to keep it in sync. This is crucial for the next migration's `diff` to work correctly.
+
+```bash
+npx wrangler d1 migrations apply <YOUR_DATABASE_NAME> --local
+```
+
+After this step, you should also regenerate your Prisma Client to make sure it's aware of the schema changes:
+
+```bash
+npx prisma generate
+```
+
+Now you can run `npm run dev` to test your changes locally.
+
+#### Step 5: Apply the Migration to Production
+
+Once you have tested your changes and are ready to deploy, apply the migration to your production D1 database.
+
+```bash
+npx wrangler d1 migrations apply <YOUR_DATABASE_NAME> --remote
+```
+
+After the migration is successfully applied, you can deploy your updated worker code:
+
+```bash
+npm run deploy
+```
+
+By following this process, you can safely and effectively manage your database schema in both local and production environments.
