@@ -2,9 +2,9 @@
 
 The solution for the poor, long live free access!
 
-This project is a Cloudflare Worker that acts as a proxy for the Google Gemini API. It exposes an interface compatible with the official Google Gemini API and internally translates requests to the Google Code Assist API format, enabling free access to Gemini models.
+This project is a Cloudflare Worker that acts as a proxy for the Google Gemini API. It exposes an OpenAI-compatible API interface and internally translates requests to the Google Code Assist API format, enabling free access to Gemini models.
 
-The project includes a complete OAuth2 flow to authorize access to Google services, securely storing the obtained credentials (access tokens, refresh tokens) in a Cloudflare KV namespace. Each user is issued a unique API key to access the service.
+This project uses a Cloudflare D1 database to store user and API key information, and provides a web interface for management.
 
 ## Deployment and Operation
 
@@ -16,37 +16,36 @@ Before you begin, ensure you have the following:
 
 -   [Node.js](https://nodejs.org/) (v20.x or later recommended)
 -   An active [Cloudflare account](https://dash.cloudflare.com/sign-up)
--   A configured Cloudflare KV namespace
+-   A configured Cloudflare D1 database.
 
 ### 2. Installation and Configuration
 
 First, clone the repository and install the dependencies:
 
 ```bash
-git clone <repository-url>
-cd frugalai
+git clone https://github.com/zjx20/FrugalAI.git
+cd FrugalAI
 npm install
+
+npx prisma generate
 ```
 
-Next, bind your KV namespace to this worker. Open the `wrangler.jsonc` file and add or modify the `kv_namespaces` configuration:
+Next, open the `wrangler.jsonc` file and configure your D1 database binding with the appropriate ID from your Cloudflare dashboard.
 
-```jsonc
-// wrangler.jsonc
-{
-  // ... other configurations
-  "kv_namespaces": [
-    {
-      "binding": "KV",
-      "id": "your_kv_namespace_id",
-      "preview_id": "your_kv_namespace_preview_id"  // Optional
-    }
-  ]
-}
+### 3. Run the Project
+
+**Important: Database Migrations**
+
+Before running or deploying the project for the first time, or after any database schema changes, you must apply the D1 database migrations. This ensures your database schema is up-to-date.
+
+To apply migrations, use the following command, replacing `<YOUR_DATABASE_NAME>` with the `database_name` (not the `binding` name) from your `wrangler.jsonc` file:
+
+```bash
+npx wrangler d1 migrations apply <YOUR_DATABASE_NAME> --local # For local development
+npx wrangler d1 migrations apply <YOUR_DATABASE_NAME> --remote # For deployment
 ```
 
-Replace `your_kv_namespace_id` and `your_kv_namespace_preview_id` with the actual IDs from your Cloudflare dashboard.
-
-### 3. Running the Project
+For more details on database development and migrations, refer to the "Database Development with Prisma and Cloudflare D1" section below.
 
 **Local Development Mode:**
 
@@ -68,121 +67,94 @@ npm run deploy
 
 Upon successful deployment, Cloudflare will provide you with a public **Endpoint URL** (e.g., `https://your-worker-name.your-subdomain.workers.dev`).
 
-## User Authorization and API Key Management
+## User and API Key Management
 
-The core of this project is its user authorization system, which now supports both individual API keys and "Fleet" API keys for enhanced rate limit management.
+This project uses a self-service web UI to manage users and their API keys. A single user can manage multiple API keys from different providers, allowing the proxy to rotate through them to handle rate limits.
 
-### Fleet API Key Feature Overview
+The setup process involves three main steps:
 
-The "API Key Fleet" feature allows you to group multiple OAuth accounts under a single public API key. When a request is made using a Fleet API Key, the system intelligently rotates through the accounts in the fleet. If an internal account encounters a 429 (Too Many Requests) error, the system automatically switches to another available account within the fleet, providing a more robust and resilient service. This helps in managing rate limits more effectively across multiple underlying Google accounts.
+### Step 1: Register and Get Your User Token
 
-### 1. Authorize and Get an API Key
+First, you need a personal User Token to access the management interface and the API.
 
-In your project terminal, run the `authorize.mjs` script. Replace `<your_endpoint_url>` with the **Endpoint URL** you obtained in the previous step.
+1.  Navigate to the user management page by opening `/user.html` on your deployed worker's URL (e.g., `https://your-worker-name.your-subdomain.workers.dev/user.html`).
+2.  On the management page, click the "Register here" link.
+3.  Optionally enter a name and click "Register".
+4.  The page will display your unique **User Token** (prefixed with `sk-`). **Save this token securely**, as it is your API key for all subsequent operations.
+
+### Step 2: Obtain Credentials for the `gemini-code-assist` Provider
+
+The core proxy functionality relies on API keys for the `gemini-code-assist` provider. To generate the necessary credentials from a Google account, run the `authorize.mjs` script from your terminal:
 
 ```bash
-node authorize.mjs --endpoint=<your_endpoint_url> [options]
+node authorize.mjs
 ```
 
-> **Note:** The `--endpoint` parameter is **required**.
-
-This script will automatically perform the following actions:
+This script will:
 1.  Open a Google authorization page in your browser.
-2.  Prompt you to log in and grant the application permission to access your Google account information and Cloud Platform data.
-3.  After successful authorization, the script will capture the credentials and send a registration request to your endpoint.
-4.  Finally, your **API Key** (either individual or fleet) will be printed directly to the terminal.
+2.  Guide you through the login and consent process.
+3.  Upon successful authorization, it will print a **Base64 encoded credential string** to your terminal.
 
-Please store this API key securely, as it is required for all subsequent requests.
+You can run this script multiple times for different Google accounts to generate multiple credentials.
 
-#### Options for `authorize.mjs`:
+### Step 3: Add Your Credentials as an API Key
 
-*   **Registering an Individual API Key (Default):**
-    ```bash
-    node authorize.mjs --endpoint=<your_endpoint_url>
-    ```
-    This will register a single OAuth account and issue a standard API key.
+Now, add the credential(s) you just obtained to your user account via the web UI.
 
-*   **Registering a New Fleet API Key (and setting the Captain):**
-    ```bash
-    node authorize.mjs --endpoint=<your_endpoint_url> --register-fleet
-    ```
-    Use this option to create a new Fleet. The Google account you authorize during this process will become the "captain" (first member) of this new fleet. The script will output a `fleet-` prefixed API key. **Keep this key safe**, as it is your primary key for managing and using this fleet.
+1.  Go back to the user management page. If you are not already logged in, paste your **User Token** from Step 1 into the login field and click "Login".
+2.  In the "Create New API Key" section:
+    -   Select `gemini-code-assist` from the provider dropdown.
+    -   Paste the **Base64 encoded credential string** from Step 2 into the "Enter your key from the provider" field.
+    -   Optionally, add a note to remember which Google account this key corresponds to.
+    -   Click "Create Key".
 
-*   **Adding a Member to an Existing Fleet:**
-    ```bash
-    node authorize.mjs --endpoint=<your_endpoint_url> --fleet-api-key=<YOUR_FLEET_API_KEY>
-    ```
-    Use this option to add another Google account as a member to an existing fleet. Replace `<YOUR_FLEET_API_KEY>` with the fleet API key obtained during fleet registration. The Google account you authorize during this process will be added to the specified fleet.
-
-### 2. Revoke Authorization
-
-You can revoke authorization for individual API keys or entire fleets.
-
-*   **Revoking an Individual API Key:**
-    ```bash
-    curl -X POST <your_endpoint_url>/revoke \
-         -H "Authorization: Bearer YOUR_INDIVIDUAL_API_KEY"
-    ```
-    This action will revoke the application's access token with Google and delete your individual user data from the KV store.
-
-*   **Revoking a Fleet API Key:**
-    ```bash
-    curl -X POST <your_endpoint_url>/revoke \
-         -H "Authorization: Bearer YOUR_FLEET_API_KEY"
-    ```
-    This will revoke authorization for all member accounts within the specified fleet and delete the entire fleet's data from the KV store.
-
-*   **Removing a Specific Member from a Fleet:**
-    To remove a single member from a fleet without revoking the entire fleet, send a POST request to the `/fleet/remove` endpoint. You will need the fleet's API key and the `userId` of the member to remove.
-    ```bash
-    curl -X POST <your_endpoint_url>/fleet/remove \
-         -H "Content-Type: application/json" \
-         -H "Authorization: Bearer YOUR_FLEET_API_KEY" \
-         -d '{
-               "userId": "USER_ID_OF_MEMBER_TO_REMOVE"
-             }'
-    ```
-    You can find the `userId` of a member by inspecting the `fleetData` in your KV store (e.g., by temporarily logging it in your worker code during development).
+Your new key will appear in the list. Repeat this step for each credential you generated. The proxy will automatically use all available `gemini-code-assist` keys associated with your user account.
 
 ## How to Use the Service
 
-Once you have your API key (individual or fleet), you can use this proxy service in several ways.
+Once you have registered and added at least one `gemini-code-assist` key, you can use the service by providing your **User Token** (the one prefixed with `sk-`) as a Bearer token.
 
 ### 1. Test with `curl`
 
-You can use `curl` to call the API directly and test its connectivity.
+You can use `curl` to call the API directly. The proxy exposes two compatible endpoints: one for the OpenAI API and one for the Google Gemini API.
+
+**OpenAI-Compatible Endpoint:**
 
 ```bash
-curl -X POST "<your_endpoint_url>/v1beta/models/gemini-2.5-flash:generateContent?key=YOUR_API_KEY" \
+curl -X POST "<your_endpoint_url>/v1/chat/completions" \
+     -H "Authorization: Bearer <YOUR_USER_TOKEN>" \
+     -H "Content-Type: application/json" \
+     -d '{
+           "model": "gemini-2.5-flash",
+           "messages": [{
+             "role": "user",
+             "content": "Hello, tell me about yourself."
+           }]
+         }'
+```
+
+**Google Gemini-Compatible Endpoint:**
+
+```bash
+curl -X POST "<your_endpoint_url>/v1beta/models/gemini-2.5-flash:generateContent" \
+     -H "x-goog-api-key: <YOUR_USER_TOKEN>" \
      -H "Content-Type: application/json" \
      -d '{
            "contents": [{
-             "role": "user",
              "parts":[{"text": "Hello, tell me about yourself."}]
            }]
          }'
 ```
 
-Replace `<your_endpoint_url>` and `YOUR_API_KEY` with your actual information. Note that `YOUR_API_KEY` can now be either an individual API key or a Fleet API key.
+Replace `<your_endpoint_url>` and `<YOUR_USER_TOKEN>` with your actual information.
 
-### 2. Test via the Web Interface
+### 2. Use in Other Tools
 
-This project includes a simple web-based chat interface for quick testing.
-
-1.  Open your **Endpoint URL** (e.g., `http://localhost:8787`) in your browser.
-2.  In the "Enter Your API Key" input field, paste the API key you obtained.
-3.  Click the "Save Key" button. The key will be saved in your browser's local storage for future sessions.
-4.  You can now start chatting with the Gemini model directly in the chatbox.
-
-### 3. Use in Other Tools
-
-The API provided by this proxy is fully compatible with the official Google Gemini API. This allows you to integrate it with any third-party application or tool (e.g., IDE plugins, specialized AI clients) that allows you to configure a custom API endpoint or base URL.
-
-The primary benefit of this approach is significant cost savings. By routing API calls through this proxy, you can leverage the free tier of the underlying Google services. This allows you to bypass potentially expensive pay-per-use fees for the official Gemini API or avoid paid subscriptions for third-party software that integrates with it.
+The API provided by this proxy is compatible with the OpenAI Chat Completions API. This allows you to integrate it with any third-party application or tool (e.g., IDE plugins, specialized AI clients) that supports the OpenAI API format and allows you to configure a custom API endpoint.
 
 To set this up, find the API settings in your tool of choice and configure the following:
--   **API Endpoint / Base URL:** Your `<your_endpoint_url>`.
--   **API Key:** The `YOUR_API_KEY` you obtained from the `authorize.mjs` script. This can be either an individual API key or a Fleet API key.
+-   **API Endpoint / Base URL:** Your `<your_endpoint_url>`
+-   **API Key:** Your **User Token** (the one prefixed with `sk-`)
 
 Once configured, the tool will communicate with this proxy, allowing you to use its features powered by Gemini at no cost.
 
@@ -220,7 +192,7 @@ Use Wrangler to create a new, empty migration file.
 npx wrangler d1 migrations create <YOUR_DATABASE_NAME> <your_migration_name>
 ```
 
--   Replace `<YOUR_DATABASE_NAME>` with the name of your D1 database binding from `wrangler.jsonc`.
+-   Replace `<YOUR_DATABASE_NAME>` with the `database_name` (not the `binding` name) from your `wrangler.jsonc` file.
 -   Replace `<your_migration_name>` with a descriptive name (e.g., `add_apikey_notes`).
 
 This command creates a new folder in the `migrations` directory containing an empty `.sql` file.
@@ -247,6 +219,8 @@ Apply the newly generated migration to your local D1 database to keep it in sync
 npx wrangler d1 migrations apply <YOUR_DATABASE_NAME> --local
 ```
 
+-   Replace `<YOUR_DATABASE_NAME>` with the `database_name` from `wrangler.jsonc`.
+
 After this step, you should also regenerate your Prisma Client to make sure it's aware of the schema changes:
 
 ```bash
@@ -260,8 +234,10 @@ Now you can run `npm run dev` to test your changes locally.
 Once you have tested your changes and are ready to deploy, apply the migration to your production D1 database.
 
 ```bash
-npx wrangler d1 migrations apply <YOUR_DATABASE_NAME> --remote
+npx wrangler d1 migrations apply <YOUR_DATABASE_NAME>
 ```
+
+-   Replace `<YOUR_DATABASE_NAME>` with the `database_name` from `wrangler.jsonc`.
 
 After the migration is successfully applied, you can deploy your updated worker code:
 

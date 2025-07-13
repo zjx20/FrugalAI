@@ -66,6 +66,19 @@ export class Database {
   }
 
   /**
+   * Updates an API key's data, such as its credentials or failure status.
+   * @param id The ID of the API key to update.
+   * @param data The data to update.
+   * @returns A promise that resolves to the updated API key object.
+   */
+  async updateApiKey(id: number, data: { keyData?: Prisma.InputJsonValue; permanentlyFailed?: boolean }): Promise<ApiKey> {
+    return this.prisma.apiKey.update({
+      where: { id },
+      data,
+    });
+  }
+
+  /**
    * Retrieves all providers from the database.
    * @returns A promise that resolves to an array of all provider objects.
    */

@@ -1,6 +1,6 @@
 # Project Context for Gemini Agent
 
-This document provides essential context about the "Gemini Free API Proxy" project for the Gemini CLI Agent. It outlines the project's architecture, functionality, and key workflows to guide the agent in understanding and modifying the codebase.
+This document provides essential context about the "FrugalAI" project for the Gemini CLI Agent. It outlines the project's architecture, functionality, and key workflows to guide the agent in understanding and modifying the codebase.
 
 ## 1. Project Overview
 
@@ -14,34 +14,26 @@ The project has been refactored to use a **Cloudflare D1 database** via the **Pr
 -   **`src/db.ts`**: A data access layer class (`Database`) that encapsulates all Prisma database operations. It is instantiated per-request with a `PrismaClient` instance to ensure compatibility with the Cloudflare Workers environment.
 -   **`src/user.ts`**: A Hono application that handles all user management API endpoints (e.g., `/api/user/register`, `/api/user/keys`). It is mounted as a route in `src/index.ts`.
 -   **`prisma/schema.prisma`**: The single source of truth for the database schema. It defines all models (User, ApiKey, Provider), fields, and relations.
--   **`public/user.html` & `public/user.js`**: A simple frontend for user self-service (registration, API key management). The HTML is served from `src/index.ts`, and the JavaScript communicates with the backend API.
--   **`authorize.mjs`**: A command-line Node.js script that guides the user through the Google OAuth2 flow for the original proxy functionality.
--   **`wrangler.jsonc`**: The configuration file for the Cloudflare Worker, including bindings for the KV namespace and the D1 database.
+-   **`public/` directory**: Contains all static assets for the user-facing UI.
+    -   **Important**: This directory is automatically served by Cloudflare Workers. The `"assets"` configuration in `wrangler.jsonc` maps the `/` route of the deployed worker to this directory. For example, a request to `https://your-worker-url/user.html` will serve the `public/user.html` file. No manual routing logic in `src/index.ts` is needed for these files.
+-   **`authorize.mjs`**: A simplified command-line script. Its sole purpose is to guide a user through the Google OAuth2 flow and output a Base64 encoded credential string. It no longer communicates with the worker API.
+-   **`wrangler.jsonc`**: The configuration file for the Cloudflare Worker, including bindings for the KV namespace, the D1 database, and the static `assets` directory.
 
 ## 3. Key Workflows
 
-### 3.1. User Self-Service Management (New)
+### 3.1. User and API Key Onboarding
 
-A web interface is available for users to manage their accounts without using the CLI.
+The new workflow is entirely centered around the web UI.
 
-1.  The user navigates to the root URL of the worker.
-2.  `src/index.ts` serves the user management page (`public/user.html`) and its assets.
-3.  The frontend (`public/user.js`) communicates with the API endpoints exposed by `src/user.ts` (mounted under `/api`) to handle:
-    -   **Registration**: Creates a new user in the D1 database and returns a user-specific API token (`sk-...`).
-    -   **API Key Management**: Allows authenticated users (using the Bearer token) to perform CRUD operations on their API keys for various providers.
+1.  **User Registration**: A new user navigates to the worker's `/user.html` page, registers, and receives a persistent User Token (`sk-...`).
+2.  **`gemini-code-assist` Credential Generation**: To use the core proxy, the user runs `node authorize.mjs`. This script handles the Google OAuth flow and outputs a Base64 encoded credential string to the console.
+3.  **API Key Creation**: The user logs into the web UI with their User Token, selects the `gemini-code-assist` provider, and pastes the Base64 string from the previous step into the "key" field to create a new `ApiKey` record in the database.
 
-### 3.2. Original Authorization and API Key Generation
+### 3.2. API Request Flow (Core Proxy)
 
-The process for a user to obtain an API key for the core proxy functionality remains.
-
-1.  The user runs the Cloudflare Worker, either locally (`npm run dev`) or by deploying it (`npm run deploy`), to get a service **Endpoint URL**.
-2.  The user runs the `authorize.mjs` script from their terminal, providing the endpoint URL.
-3.  The script handles the OAuth2 consent flow, receives authorization tokens, and communicates with the worker to register or update credentials in KV. The final API key is printed to the user's console.
-
-### 3.3. API Request Flow (Core Proxy)
-
-1.  A user makes a request to the proxy endpoint (e.g., `/v1beta/models/gemini-2.5-flash:generateContent`), providing their API key.
-2.  The worker retrieves credentials from KV using the API key.
+1.  A user makes a request to a `/v1/...` endpoint, providing their User Token in the `Authorization: Bearer <token>` header.
+2.  The `bearerAuth` middleware in `src/index.ts` validates the token and retrieves the user object, including all associated API keys, from the database.
+3.  The endpoint logic filters for usable keys belonging to the `gemini-code-assist` provider (i.e., not rate-limited or permanently failed).
 3.  The worker refreshes the `access_token` if necessary.
 4.  The worker forwards the request to the internal Google Code Assist API, handling fleet key rotation and rate-limiting logic.
 5.  The response is translated back to the standard Gemini API format and returned to the user.
@@ -61,7 +53,7 @@ Use Wrangler to create the migration folder and empty `.sql` file.
 ```bash
 npx wrangler d1 migrations create <YOUR_DATABASE_NAME> <your_migration_name>
 ```
--   `<YOUR_DATABASE_NAME>` is the binding name in `wrangler.jsonc`.
+-   `<YOUR_DATABASE_NAME>` is the `database_name` from `wrangler.jsonc`.
 -   `<your_migration_name>` should be descriptive (e.g., `add_apikey_notes`).
 
 #### Step 3: Generate SQL Diff
@@ -84,6 +76,7 @@ Apply the migration to the local D1 instance to keep it synchronized. **This ste
 ```bash
 npx wrangler d1 migrations apply <YOUR_DATABASE_NAME> --local
 ```
+-   `<YOUR_DATABASE_NAME>` is the `database_name` from `wrangler.jsonc`.
 
 After applying the migration, regenerate the Prisma Client to update its types.
 
@@ -96,8 +89,9 @@ npx prisma generate
 After local testing is complete, apply the migration to the production D1 database.
 
 ```bash
-npx wrangler d1 migrations apply <YOUR_DATABASE_NAME> --remote
+npx wrangler d1 migrations apply <YOUR_DATABASE_NAME>
 ```
+-   `<YOUR_DATABASE_NAME>` is the `database_name` from `wrangler.jsonc`.
 
 This workflow ensures that schema changes are version-controlled and applied consistently across all environments.
 

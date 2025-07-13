@@ -3,9 +3,7 @@ import http from 'http';
 import url from 'url';
 import open from 'open';
 import net from 'net';
-import fs from 'fs/promises';
 import { setupUser } from '@google/gemini-cli-core/dist/src/code_assist/setup.js';
-import { request } from 'gaxios';
 
 async function getProjectId(client) {
     return await setupUser(client);
@@ -20,48 +18,6 @@ const OAUTH_SCOPE = [
     'https://www.googleapis.com/auth/userinfo.email',
     'https://www.googleapis.com/auth/userinfo.profile',
 ];
-
-async function sendCredentials(endpoint, path, encodedCredentials, fleetApiKey = null) {
-    const targetUrl = new URL(path, endpoint).toString();
-    const postData = { credentials: encodedCredentials };
-
-    const headers = {
-        'Content-Type': 'application/json',
-    };
-
-    if (fleetApiKey) {
-        headers['Authorization'] = `Bearer ${fleetApiKey}`;
-    }
-
-    const gaxiosOptions = {
-        method: 'POST',
-        url: targetUrl,
-        headers: headers,
-        data: postData,
-    };
-
-    // Configure proxy if HTTPS_PROXY or HTTP_PROXY environment variable is set
-    let proxyEnv = process.env.HTTPS_PROXY || process.env.HTTP_PROXY;
-    if (proxyEnv) {
-        const proxyUrl = new URL(proxyEnv);
-        gaxiosOptions.proxy = {
-            protocol: proxyUrl.protocol.replace(':', ''),
-            host: proxyUrl.hostname,
-            port: parseInt(proxyUrl.port),
-        };
-    }
-
-    try {
-        const response = await request(gaxiosOptions);
-        return response.data;
-    } catch (error) {
-        if (error.response) {
-            throw new Error(`Request failed with status code ${error.response.status}: ${JSON.stringify(error.response.data)}`);
-        } else {
-            throw error;
-        }
-    }
-}
 
 async function getAvailablePort() {
     return new Promise((resolve, reject) => {
@@ -78,71 +34,18 @@ async function getAvailablePort() {
 }
 
 async function main() {
-    const args = process.argv.slice(2);
-    const endpointArg = args.find(arg => arg.startsWith('--endpoint='));
-    const credentialsFileArg = args.find(arg => arg.startsWith('--credentials-file='));
-    const fleetApiKeyArg = args.find(arg => arg.startsWith('--fleet-api-key='));
-    const registerFleetArg = args.includes('--register-fleet');
-
-    const endpoint = endpointArg ? endpointArg.split('=')[1] : null;
-    const credentialsFile = credentialsFileArg ? credentialsFileArg.split('=')[1] : null;
-    const fleetApiKey = fleetApiKeyArg ? fleetApiKeyArg.split('=')[1] : null;
-
-    if (!endpoint) {
-        console.error('Error: The --endpoint parameter is required.');
-        console.error('Usage: node authorize.mjs --endpoint=<your_server_url> [--credentials-file=<path_to_file>] [--fleet-api-key=<fleet_api_key>] [--register-fleet]');
-        process.exit(1);
-    }
-    let encodedCredentials;
-
-    if (credentialsFile) {
-        console.log(`Using credentials from ${credentialsFile}`);
-        const credentialsString = await fs.readFile(credentialsFile, 'utf-8');
-        const credentials = JSON.parse(credentialsString);
-
-        const client = new OAuth2Client({
-            clientId: OAUTH_CLIENT_ID,
-            clientSecret: OAUTH_CLIENT_SECRET,
-        });
-        client.setCredentials(credentials);
-
-        const projectId = await getProjectId(client);
-        const credentialsData = {
-            tokens: credentials,
-            projectId: projectId,
-        };
-        encodedCredentials = Buffer.from(JSON.stringify(credentialsData)).toString('base64');
-    } else {
-        encodedCredentials = await getCredentialsFromAuthFlow();
-    }
-
     try {
-        let result;
-        if (registerFleetArg) {
-            console.log(`Registering new fleet with endpoint: ${endpoint}`);
-            result = await sendCredentials(endpoint, '/fleet/register', encodedCredentials);
-            console.log('--------------------------------------------------------------------------');
-            console.log('Fleet API Key obtained successfully:');
-            console.log(`\n${result.fleetApiKey}\n`);
-            console.log('Please keep this API key safe. You will use it to add new members to your fleet.');
-            console.log('--------------------------------------------------------------------------');
-        } else if (fleetApiKey) {
-            console.log(`Adding member to fleet with API key: ${fleetApiKey}`);
-            result = await sendCredentials(endpoint, '/fleet/add', encodedCredentials, fleetApiKey);
-            console.log('--------------------------------------------------------------------------');
-            console.log('Member added to fleet successfully.');
-            console.log('--------------------------------------------------------------------------');
-        } else {
-            console.log(`Registering with endpoint: ${endpoint}`);
-            result = await sendCredentials(endpoint, '/register', encodedCredentials);
-            console.log('--------------------------------------------------------------------------');
-            console.log('API Key obtained successfully:');
-            console.log(`\n${result.apiKey}\n`);
-            console.log('You can now use this API key with your application.');
-            console.log('--------------------------------------------------------------------------');
-        }
+        const encodedCredentials = await getCredentialsFromAuthFlow();
+        console.log('--------------------------------------------------------------------------');
+        console.log('✅ Authorization successful!');
+        console.log('\nCopy the following Base64 encoded string. You will need it to add a new "gemini-code-assist" API key in the web UI.');
+        console.log('\n--- BEGIN CREDENTIALS ---');
+        console.log(encodedCredentials);
+        console.log('--- END CREDENTIALS ---\n');
+        console.log('Go to the web UI, log in with your user token, and paste this into the "Enter your key from the provider" field when creating a new key.');
+        console.log('--------------------------------------------------------------------------');
     } catch (error) {
-        console.error('Failed to process credentials:', error.message);
+        console.error('❌ Failed to get credentials:', error.message);
     }
 }
 
@@ -207,7 +110,6 @@ async function getCredentialsFromAuthFlow() {
                     res.end('Authorization successful! You can close this tab now.');
                     server.close();
 
-                    console.log('Authorization successful!');
                     resolve(encodedCredentials);
 
                 } catch (e) {

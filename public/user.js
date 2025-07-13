@@ -43,15 +43,26 @@ document.addEventListener('DOMContentLoaded', () => {
     loginView.classList.remove('hidden');
   });
 
-  loginButton.addEventListener('click', () => {
+  loginButton.addEventListener('click', async () => {
     const token = loginTokenInput.value.trim();
-    if (token) {
+    if (!token) {
+      alert('Please enter a valid API Token.');
+      return;
+    }
+
+    const response = await fetch('/api/user/keys', {
+      headers: { 'Authorization': `Bearer ${token}` },
+    });
+
+    if (response.ok) {
       apiToken = token;
       localStorage.setItem('apiToken', token);
       authSection.classList.add('hidden');
       showApiKeyManagement();
+    } else if (response.status === 401) {
+      alert('Login failed: Invalid token.');
     } else {
-      alert('Please enter a valid API Token.');
+      alert('An error occurred during login.');
     }
   });
 

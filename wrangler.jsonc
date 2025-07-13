@@ -48,18 +48,11 @@
 	 */
 	// "services": [{ "binding": "MY_SERVICE", "service": "my-service" }]
 
-	"kv_namespaces": [
-		{
-			"binding": "KV",
-			"id": "08faf4f93ef946a99ef77afe4d982667"
-		}
-	],
-
 	"d1_databases": [
 		{
-		"binding": "DB",
-		"database_name": "frugalai-db",
-		"database_id": "09a9ec55-32f8-4ebd-9be2-29c4f2c1d184"
+			"binding": "DB",
+			"database_name": "frugalai-db",
+			"database_id": "09a9ec55-32f8-4ebd-9be2-29c4f2c1d184"
 		}
 	]
 }

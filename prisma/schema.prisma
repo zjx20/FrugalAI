@@ -29,6 +29,7 @@ model ApiKey {
   keyData      Json
   throttleData Json
   notes        String?
+  permanentlyFailed Boolean @default(false)
 }
 
 enum ThrottleMode {
