@@ -2,15 +2,15 @@ import { Hono, Context, Next } from 'hono';
 import { ChatCompletionCreateParams } from 'openai/resources/chat/completions';
 import { ApiKey, PrismaClient, Provider, User, ProviderName } from './generated/prisma';
 import { PrismaD1 } from '@prisma/adapter-d1';
-import { Database } from './db';
+import { Database } from './core/db';
 import userApp from './user';
 import {
 	convertChatCompletionCreateToGemini,
 	convertGoogleResponseToOpenAi,
 	GoogleToOpenAiSseTransformer,
-} from './openai-adapter';
+} from './gemini/openai-adapter';
 import { OAuth2Client } from 'google-auth-library';
-import { ApiKeyThrottleHelper } from './throttle-helper';
+import { ApiKeyThrottleHelper } from './core/throttle-helper';
 
 const CODE_ASSIST_ENDPOINT = 'https://cloudcode-pa.googleapis.com';
 const CODE_ASSIST_API_VERSION = 'v1internal';
@@ -100,19 +100,6 @@ function parseKeyData(keyData: any): { tokens: any; projectId: string } {
 		}
 		// Handle direct JSON object format
 		return keyData as { tokens: any; projectId: string };
-	} else if (typeof keyData === 'string') {
-		// Legacy support for plain base64 string
-		try {
-			const decodedString = Buffer.from(keyData, 'base64').toString('utf-8');
-			return JSON.parse(decodedString);
-		} catch (e) {
-			// Legacy support for plain JSON string
-			try {
-				return JSON.parse(keyData);
-			} catch (e2) {
-				throw new Error('Failed to parse keyData from both Base64 and plain JSON string.');
-			}
-		}
 	}
 	throw new Error('Unsupported keyData format.');
 }

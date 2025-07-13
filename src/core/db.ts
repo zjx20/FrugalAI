@@ -1,4 +1,4 @@
-import { Prisma, PrismaClient, User, ApiKey, Provider } from './generated/prisma';
+import { Prisma, PrismaClient, User, ApiKey, Provider, ProviderName } from '../generated/prisma';
 
 /**
  * A data access class that provides methods for interacting with the database.
@@ -91,7 +91,7 @@ export class Database {
    * @param name The name of the provider.
    * @returns A promise that resolves to the provider object, or null if not found.
    */
-  async getProviderByName(name: string): Promise<Provider | null> {
+  async getProviderByName(name: ProviderName): Promise<Provider | null> {
     return this.prisma.provider.findUnique({
       where: { name },
     });
@@ -133,7 +133,7 @@ export class Database {
    */
   async createApiKey(
     ownerId: number,
-    providerName: string,
+    providerName: ProviderName,
     keyData: Prisma.InputJsonValue,
     notes?: string,
     throttleData?: Prisma.InputJsonValue

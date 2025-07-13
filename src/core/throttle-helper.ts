@@ -1,4 +1,4 @@
-import { ApiKey, Provider, User, Prisma, ProviderName, ThrottleMode } from './generated/prisma';
+import { ApiKey, Provider, User, Prisma, ProviderName, ThrottleMode } from '../generated/prisma';
 import { Database } from './db';
 
 /**
