@@ -112,6 +112,33 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
+  function getStatusIndicator(key) {
+    const now = Date.now();
+    let statusHtml = '<span title="Healthy">🟢</span>'; // Default to healthy
+
+    if (key.permanentlyFailed) {
+      return '<span title="This key is permanently disabled due to repeated critical failures.">🔴 Permanently Failed</span>';
+    }
+
+    // Throttle data can be complex, so we need to check the relevant part (global or model-specific)
+    // For simplicity in this UI, we'll just check if any throttleData exists and is active.
+    // A more advanced UI could inspect the specific model being used.
+    if (key.throttleData && typeof key.throttleData === 'object') {
+      // Find the most relevant throttle status to display
+      const relevantThrottle = Object.values(key.throttleData).find(t => t.expiration > now || t.consecutiveFailures > 0);
+
+      if (relevantThrottle) {
+        if (relevantThrottle.expiration > now) {
+          const expirationDate = new Date(relevantThrottle.expiration).toLocaleTimeString();
+          statusHtml = `<span title="This key is temporarily throttled. It will be available again after ${expirationDate}.">🟡 Throttled</span>`;
+        } else if (relevantThrottle.consecutiveFailures > 0) {
+          statusHtml = `<span title="This key has failed ${relevantThrottle.consecutiveFailures} consecutive times. It will be throttled if it continues to fail.">🟠 Failing</span>`;
+        }
+      }
+    }
+    return statusHtml;
+  }
+
   async function loadApiKeys() {
     if (!apiToken) return;
     const response = await fetch('/api/user/keys', {
@@ -126,11 +153,17 @@ document.addEventListener('DOMContentLoaded', () => {
         noKeysMessage.classList.add('hidden');
         keys.forEach(key => {
           const li = document.createElement('li');
-          const notesText = key.notes ? ` - Notes: ${key.notes}` : '';
-          li.textContent = `Provider: ${key.providerName}, Key ID: ${key.id}${notesText}`;
+          const statusIndicator = getStatusIndicator(key);
+          const notesText = key.notes ? ` - <i>${key.notes}</i>` : '';
+
+          const keyInfo = document.createElement('span');
+          keyInfo.innerHTML = `${statusIndicator} <b>${key.providerName}</b> (ID: ${key.id})${notesText}`;
+
           const deleteButton = document.createElement('button');
           deleteButton.textContent = 'Delete';
           deleteButton.onclick = () => deleteApiKey(key.id);
+
+          li.appendChild(keyInfo);
           li.appendChild(deleteButton);
           apiKeysList.appendChild(li);
         });

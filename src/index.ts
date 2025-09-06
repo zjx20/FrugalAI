@@ -1,30 +1,19 @@
 import { Hono, Context, Next } from 'hono';
-import { ChatCompletionCreateParams } from 'openai/resources/chat/completions';
-import { ApiKey, PrismaClient, Provider, User, ProviderName } from './generated/prisma';
+import { PrismaClient } from './generated/prisma';
 import { PrismaD1 } from '@prisma/adapter-d1';
 import { Database } from './core/db';
 import userApp from './user';
-import {
-	convertChatCompletionCreateToGemini,
-	convertGoogleResponseToOpenAi,
-	GoogleToOpenAiSseTransformer,
-} from './gemini/openai-adapter';
-import { OAuth2Client } from 'google-auth-library';
 import { ApiKeyThrottleHelper } from './core/throttle-helper';
-
-const CODE_ASSIST_ENDPOINT = 'https://cloudcode-pa.googleapis.com';
-const CODE_ASSIST_API_VERSION = 'v1internal';
-const OAUTH_CLIENT_ID = '681255809395-oo8ft2oprdrnp9e3aqf6av3hmdib135j.apps.googleusercontent.com';
-const OAUTH_CLIENT_SECRET = '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';
+import { ApiKeyWithProvider, Credential, GeminiRequest, OpenAIRequest, ProviderHandler, ThrottledError, UserWithKeys } from './core/types';
+import { providerHandlerMap } from './core/providers';
 
 export interface Env {
-	KV: KVNamespace;
 	DB: D1Database;
 }
 
 type AppVariables = {
 	db: Database;
-	user: User & { keys: (ApiKey & { provider: Provider })[] };
+	user: UserWithKeys;
 };
 
 const app = new Hono<{ Bindings: Env; Variables: AppVariables }>();
@@ -81,213 +70,49 @@ const proxyAuth = async (c: Context<{ Bindings: Env; Variables: AppVariables }>,
 app.use('/v1/*', proxyAuth);
 app.use('/v1beta/*', proxyAuth);
 
-/**
- * Intelligently parses the keyData from an ApiKey.
- * It supports both legacy Base64 encoded JSON and native JSON objects.
- * @param keyData The keyData from the ApiKey model.
- * @returns The parsed credentials object with tokens and projectId.
- */
-function parseKeyData(keyData: any): { tokens: any; projectId: string } {
-	if (typeof keyData === 'object' && keyData !== null) {
-		// Handle {"key": "<base64 string>"} format
-		if (typeof keyData.key === 'string') {
-			try {
-				const decodedString = Buffer.from(keyData.key, 'base64').toString('utf-8');
-				return JSON.parse(decodedString);
-			} catch (e) {
-				throw new Error('Failed to parse base64 encoded key from keyData.key');
-			}
+async function selectKeys(user: UserWithKeys, model: string): Promise<ApiKeyWithProvider[]> {
+	const result = [];
+	for (const key of user.keys) {
+		const handler = providerHandlerMap.get(key.providerName);
+		if (!handler) {
+			continue;
 		}
-		// Handle direct JSON object format
-		return keyData as { tokens: any; projectId: string };
+		if (await handler.canHandleModel(model)) {
+			result.push(key);
+		}
 	}
-	throw new Error('Unsupported keyData format.');
+	return result;
 }
 
-// Helper function to forward requests to the Google API
-async function forwardRequest(c: any, accessToken: string, projectId: string, model: string, method: string, requestBodyOverride?: any, sse?: boolean) {
-	const version = process.env.CLI_VERSION || process.version;
-	const userAgent = `GeminiCLI/${version} (${process.platform}; ${process.arch})`;
-
-	const requestBody = requestBodyOverride ?? await c.req.json();
-	const body = {
-		model: model,
-		project: projectId,
-		request: requestBody,
-	};
-
-	const headers = new Headers();
-	headers.append('Content-Type', 'application/json');
-	headers.append('User-Agent', userAgent);
-	headers.append('Authorization', `Bearer ${accessToken}`);
-
-	const url = new URL(`${CODE_ASSIST_ENDPOINT}/${CODE_ASSIST_API_VERSION}:${method}`);
-	if (sse) {
-		url.searchParams.set('alt', 'sse');
+async function getApiKeysAndHandleRequest(c: Context<{ Bindings: Env; Variables: AppVariables }>, model: string, fn: (handler: ProviderHandler, cred: Credential) => Promise<Response | Error>): Promise<Response> {
+	const user = c.get('user');
+	const db = c.get('db');
+	const keys = await selectKeys(user, model);
+	if (keys.length == 0) {
+		return c.json({ error: `No keys available for this model "{model}"` }, 500);
 	}
-
-	const upstreamResponse = await fetch(url, {
-		method: c.req.method,
-		headers: headers,
-		body: JSON.stringify(body),
-	});
-
-	return upstreamResponse;
-}
-
-async function sendRequestToGeminiCodeAssist(c: any, model: string, requestBody: any, sse: boolean, method?: string): Promise<Response> {
-	const user: User & { keys: (ApiKey & { provider: Provider })[] } = c.get('user');
-	const db: Database = c.get('db');
-
-	method = method ?? (sse ? 'streamGenerateContent' : 'generateContent');
-
-	try {
-		const throttleHelper = new ApiKeyThrottleHelper(
-			user,
-			db,
-			(key) => key.providerName === ProviderName.GEMINI_CODE_ASSIST,
-			model // Pass the current model for BY_MODEL throttling
-		);
-
-		let foundKey = false;
-		for await (const key of throttleHelper.getAvailableKeys()) {
-			foundKey = true;
-			let isKeyDataUpdated = false;
-
-			// Extract tokens and projectId from keyData
-			const { tokens, projectId } = parseKeyData(key.keyData);
-
-			// Handle OAuth token refresh if applicable
-			let accessToken = tokens.access_token;
-			if (key.provider.name === ProviderName.GEMINI_CODE_ASSIST) {
-				const client = new OAuth2Client({
-					clientId: OAUTH_CLIENT_ID,
-					clientSecret: OAUTH_CLIENT_SECRET,
-				});
-				client.setCredentials(tokens);
-
-				try {
-					await client.getAccessToken(); // Refreshes the token
-				} catch (e: any) {
-					if (e.response?.data?.error === 'invalid_grant') {
-						console.error(`Permanent failure for ApiKey ${key.id} (invalid_grant): ${e.message}`);
-						await db.updateApiKey(key.id, { permanentlyFailed: true });
-						await throttleHelper.reportApiKeyStatus(key, false, false, false, c.executionCtx); // Report permanent failure
-						continue; // Try next key
-					}
-					console.error(`Error refreshing token for ApiKey ${key.id}:`, e);
-					await throttleHelper.reportApiKeyStatus(key, false, false, false, c.executionCtx); // Report temporary failure
-					continue; // Try next key
-				}
-
-				const refreshedCredentials = client.credentials;
-				if (refreshedCredentials.access_token !== tokens.access_token) {
-					// Update keyData with refreshed tokens
-					key.keyData = {
-						tokens: {
-							refresh_token: refreshedCredentials.refresh_token,
-							expiry_date: refreshedCredentials.expiry_date,
-							access_token: refreshedCredentials.access_token,
-							token_type: refreshedCredentials.token_type,
-							id_token: refreshedCredentials.id_token,
-							scope: refreshedCredentials.scope,
-						},
-						projectId,
-					};
-					isKeyDataUpdated = true;
-					accessToken = refreshedCredentials.access_token;
-				}
-			}
-
-			let response: Response | undefined;
-			let isRateLimited = false;
-			let success = false;
-
-			try {
-				response = await forwardRequest(c, accessToken, projectId, model, method, requestBody, sse);
-
-				if (response.status === 429) {
-					isRateLimited = true;
-					console.log(`ApiKey ${key.id} was rate-limited.`);
-				} else if (response.ok) {
-					success = true;
-				} else {
-					console.log(`Response is not ok, status: ${response.status} ${response.statusText}`);
-					return response;
-				}
-			} catch (e: any) {
-				console.error('Error during forwardRequest:', e);
-				// Assume all forwardRequest errors are not rate limits, but other failures
-				success = false;
-			} finally {
-				// Report API call result to throttleHelper
-				await throttleHelper.reportApiKeyStatus(key, success, isRateLimited, isKeyDataUpdated, c.executionCtx);
-			}
-
-			if (success && response) {
-				return response;
-			} else if (isRateLimited) {
-				continue; // Try next key
-			}
+	const errors: Error[] = [];
+	const throttle = new ApiKeyThrottleHelper(keys, db, undefined, model);
+	for await (const key of throttle.getAvailableKeys()) {
+		const handler = providerHandlerMap.get(key.providerName);
+		if (!handler || !(await handler.canHandleModel(model))) {
+			continue;
 		}
-
-		if (!foundKey) {
-			const permanentlyFailedKeys = user.keys
-				.filter((k: any) => k.permanentlyFailed)
-				.map((k: any) => k.id);
-			let error = 'All available API keys for this provider are currently rate-limited or permanently failed.';
-			if (permanentlyFailedKeys.length > 0) {
-				error += ` The following keys have permanently failed and need to be replaced: ${permanentlyFailedKeys.join(', ')}.`;
-			}
-			return c.json({ error }, 429);
+		const response = await fn(handler, { apiKey: key, feedback: throttle });
+		if (response instanceof Error) {
+			errors.push(response);
+			continue;
 		}
-
-		// If all keys were tried and failed
-		return c.json({ error: 'All available API keys failed or were rate-limited.' }, 500);
-
-	} catch (e: any) {
-		console.error('Error processing request:', e);
-		if (e.response && e.response.status) {
-			return c.json({ error: 'Google API error', details: e.response.data }, e.response.status);
-		} else {
-			return c.json({ error: 'Failed to forward request', details: e.message }, 500);
-		}
+		return response;
 	}
-}
-
-// Helper function to process the response from Google API for OpenAI compatibility
-async function processUpstreamResponseOpenAI(c: any, upstreamResponse: Response, model: string, stream: boolean, includeUsage: boolean) {
-	if (!upstreamResponse.ok) {
-		return upstreamResponse; // Pass through error responses directly.
-	}
-
-	if (stream) {
-		if (!upstreamResponse.body) {
-			return new Response('Upstream response has no body', { status: 500 });
+	if (errors.length > 0) {
+		const throttled = errors.some(e => e instanceof ThrottledError);
+		if (throttled) {
+			return c.json({ error: 'ApiKeys were rate-limited', details: errors.map(e => e.message) }, 429);
 		}
-		const unwrapStream = new TransformStream(new CodeAssistUnwrapTransformer());
-		const openAiTransformStream = new TransformStream(new GoogleToOpenAiSseTransformer(model, includeUsage));
-
-		const transformedBody = upstreamResponse.body
-			.pipeThrough(unwrapStream)
-			.pipeThrough(openAiTransformStream);
-
-		const responseHeaders = new Headers(upstreamResponse.headers);
-		responseHeaders.set('Content-Type', 'text/event-stream');
-		return new Response(transformedBody, {
-			status: upstreamResponse.status,
-			statusText: upstreamResponse.statusText,
-			headers: responseHeaders,
-		});
-	} else {
-		let respObj: any = await upstreamResponse.json();
-		// The Code Assist API wraps the actual response.
-		if (respObj && typeof respObj === 'object' && respObj.response) {
-			respObj = respObj.response;
-		}
-		const openAIResponse = convertGoogleResponseToOpenAi(respObj, model);
-		return c.json(openAIResponse);
+		return c.json({ error: 'Error occurred', details: errors.map(e => e.message) }, 500);
 	}
+	return c.json({ error: 'ApiKeys were rate-limited' }, 429);
 }
 
 function extractModel(model: string): string {
@@ -299,77 +124,12 @@ function extractModel(model: string): string {
 }
 
 app.post('/v1/chat/completions', async (c) => {
-	const openAIRequestBody: ChatCompletionCreateParams = await c.req.json();
+	const openAIRequestBody: OpenAIRequest = await c.req.json();
 	const model = extractModel(openAIRequestBody.model);
-	const stream = openAIRequestBody.stream ?? false;
-	const method = stream ? 'streamGenerateContent' : 'generateContent';
-	const geminiRequestParams = convertChatCompletionCreateToGemini(openAIRequestBody);
-
-	const {
-		tools, toolConfig,
-		safetySettings,
-		systemInstruction,
-		cachedContent,
-		httpOptions: _httpOptions,  // Unused, just for dropping this field from generateConfig
-		abortSignal: _abortSignal,  // Unused, just for dropping this field from generateConfig
-		...generateConfig
-	} = geminiRequestParams.config || {};
-
-	const requestBody = {
-		contents: geminiRequestParams.contents,
-		tools: tools,
-		toolConfig: toolConfig,
-		safetySettings: safetySettings,
-		systemInstruction: systemInstruction,
-		generationConfig: generateConfig,
-		cachedContent: cachedContent,
-	};
-
-	const response = await sendRequestToGeminiCodeAssist(c, model, requestBody, stream, method);
-	if (response.ok) {
-		const includeUsage = openAIRequestBody.stream_options?.include_usage ?? false;
-		return processUpstreamResponseOpenAI(c, response, model, stream, includeUsage);
-	}
-	return response;
+	return getApiKeysAndHandleRequest(c, model, async (handler, cred) => {
+		return handler.handleOpenAIRequest(c.executionCtx, openAIRequestBody, cred);
+	});
 });
-
-// Helper function to process the response from Google API
-async function processUpstreamResponseGemini(c: any, upstreamResponse: Response) {
-	if (!upstreamResponse.ok) {
-		return upstreamResponse; // Pass through error responses directly.
-	}
-
-	const sse = c.req.query('alt') === 'sse';
-
-	if (sse) {
-		if (!upstreamResponse.body) {
-			return new Response('Upstream response has no body', { status: 500 });
-		}
-		const transformStream = new TransformStream(new CodeAssistUnwrapTransformer());
-		const transformedBody = upstreamResponse.body.pipeThrough(transformStream);
-		const responseHeaders = new Headers(upstreamResponse.headers);
-		responseHeaders.set('Content-Type', 'text/event-stream');
-		return new Response(transformedBody, {
-			status: upstreamResponse.status,
-			statusText: upstreamResponse.statusText,
-			headers: responseHeaders,
-		});
-	} else {
-		let respObj: any = await upstreamResponse.json();
-		if (Array.isArray(respObj)) {
-			const unwrapped = [];
-			for (const obj of respObj) {
-				if (obj && obj.response) {
-					unwrapped.push(obj.response);
-				}
-			}
-			respObj = unwrapped;
-		} else if (respObj && typeof respObj === 'object' && respObj.response) {
-			respObj = respObj.response;
-		}
-		return c.json(respObj);
-	}
-}
 
 app.post('/v1beta/models/:modelAndMethod{[a-zA-Z0-9.-]+:[a-zA-Z]+}', async (c) => {
 	const modelAndMethod = c.req.param('modelAndMethod');
@@ -377,78 +137,16 @@ app.post('/v1beta/models/:modelAndMethod{[a-zA-Z0-9.-]+:[a-zA-Z]+}', async (c) =
 	const sse = c.req.query('alt') === 'sse';
 
 	const requestBody = await c.req.json();
-	const response = await sendRequestToGeminiCodeAssist(c, model, requestBody, sse, method);
-	if (response.ok) {
-		return processUpstreamResponseGemini(c, response);
-	}
-	return response;
+	const geminiRequest: GeminiRequest = {
+		model: model,
+		method: method,
+		sse: sse,
+		request: requestBody,
+	};
+
+	return getApiKeysAndHandleRequest(c, model, async (handler, cred) => {
+		return handler.handleGeminiRequest(c.executionCtx, geminiRequest, cred);
+	});
 });
-
-/**
- * A TransformStream that intercepts Server-Sent Events (SSE) from the
- * Google Code Assist API and unwraps the nested `response` object to match
- * the standard Gemini API format.
- */
-class CodeAssistUnwrapTransformer implements Transformer<Uint8Array, Uint8Array> {
-	private buffer = '';
-	private decoder = new TextDecoder();
-	private encoder = new TextEncoder();
-
-	transform(chunk: Uint8Array, controller: TransformStreamDefaultController<Uint8Array>) {
-		this.buffer += this.decoder.decode(chunk, { stream: true });
-
-		const outputs = [];
-		let pos = 0;
-		while (true) {
-			if (pos == this.buffer.length) {
-				this.buffer = '';
-				break;
-			}
-			let index = this.buffer.indexOf('\n', pos);
-			if (index == -1) {
-				this.buffer = this.buffer.slice(pos);
-				break;
-			}
-			const line = this.buffer.slice(pos, index + 1);
-			pos = index + 1;
-			if (!line.startsWith('data:')) {
-				outputs.push(line);
-				continue;
-			}
-
-			const dataJson = line.substring(5).trim();
-			if (dataJson === '[DONE]') {
-				outputs.push(line);
-				continue;
-			}
-			try {
-				const dataObj = JSON.parse(dataJson);
-				if (dataObj.response) {
-					let endl = '\n';
-					if (line.endsWith('\r\n')) {
-						endl = '\r\n';
-					}
-					const unwrappedData = dataObj.response;
-					outputs.push(`data: ${JSON.stringify(unwrappedData)}${endl}`);
-				} else {
-					outputs.push(line);
-				}
-			} catch (e) {
-				console.error('SSE data is not valid JSON, passing through:', dataJson);
-				outputs.push(line);
-			}
-		}
-		if (outputs) {
-			controller.enqueue(this.encoder.encode(outputs.join('')));
-		}
-	}
-
-	flush(controller: TransformStreamDefaultController<Uint8Array>) {
-		if (this.buffer) {
-			console.error('[CodeAssistUnwrapTransformer] Unprocessed buffer remaining at the end of the stream:', this.buffer);
-			controller.enqueue(this.encoder.encode(this.buffer));
-		}
-	}
-}
 
 export default app;
