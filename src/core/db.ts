@@ -1,4 +1,4 @@
-import { Prisma, PrismaClient, User, ApiKey, Provider, ProviderName } from '../generated/prisma';
+import { Prisma, PrismaClient, User, ApiKey, Provider, ProviderName, ThrottleMode } from '../generated/prisma';
 
 /**
  * A data access class that provides methods for interacting with the database.
@@ -157,6 +157,47 @@ export class Database {
   async deleteApiKey(id: number): Promise<ApiKey> {
     return this.prisma.apiKey.delete({
       where: { id },
+    });
+  }
+
+  /**
+   * Updates a provider's configuration.
+   * @param name The name of the provider to update.
+   * @param data The data to update.
+   * @returns A promise that resolves to the updated provider object.
+   */
+  async updateProvider(name: ProviderName, data: {
+    throttleMode?: ThrottleMode;
+    minThrottleDuration?: number;
+    maxThrottleDuration?: number;
+    models?: Prisma.InputJsonValue;
+  }): Promise<Provider> {
+    return this.prisma.provider.update({
+      where: { name },
+      data,
+    });
+  }
+
+  /**
+   * Creates a new provider.
+   * @param name The name of the provider.
+   * @param data The provider configuration data.
+   * @returns A promise that resolves to the newly created provider object.
+   */
+  async createProvider(name: ProviderName, data: {
+    throttleMode?: ThrottleMode;
+    minThrottleDuration?: number;
+    maxThrottleDuration?: number;
+    models: Prisma.InputJsonValue;
+  }): Promise<Provider> {
+    return this.prisma.provider.create({
+      data: {
+        name,
+        throttleMode: data.throttleMode || ThrottleMode.BY_KEY,
+        minThrottleDuration: data.minThrottleDuration || 1,
+        maxThrottleDuration: data.maxThrottleDuration || 15,
+        models: data.models,
+      },
     });
   }
 }

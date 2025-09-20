@@ -97,6 +97,42 @@ npx wrangler d1 migrations apply <YOUR_DATABASE_NAME> --remote
 
 This workflow ensures that schema changes are version-controlled and applied consistently across all environments.
 
+## 5. Administrator Interface
+
+This project provides an admin interface to manage provider configurations (models and throttle settings) without touching the database directly.
+
+- Admin Login Flow:
+  - The admin enters a password on `/admin.html`.
+  - The worker hashes the password with Web Crypto (SHA-256) and compares it to `ADMIN_PASSWORD_HASH` stored as a secret.
+  - If valid, the worker issues a short-lived JWT (24h) signed with HMAC using `JWT_SECRET` via the `jose` library.
+  - Subsequent admin API calls include `Authorization: Bearer <token>`.
+
+- Where the admin password is stored:
+  - Do NOT store plaintext anywhere.
+  - Only store the SHA-256 hex hash of the password as a Cloudflare Worker secret named `ADMIN_PASSWORD_HASH`.
+  - Store the JWT signing key as a Cloudflare Worker secret named `JWT_SECRET`.
+
+- Relevant files:
+  - `src/admin.ts`: Hono app with routes:
+    - `POST /admin/login` — verifies password hash and returns a JWT.
+    - `GET /admin/providers` — lists providers (requires JWT).
+    - `PUT /admin/providers/:name` — updates provider config (requires JWT).
+  - `public/admin.html`: Admin UI. Handles login, token storage, fetching and updating provider configs.
+
+- Environment configuration (Cloudflare):
+  - Use Wrangler (or Dashboard) to set secrets:
+    - `npx wrangler secret put ADMIN_PASSWORD_HASH`
+    - `npx wrangler secret put JWT_SECRET`
+  - To generate hash:
+    - `echo -n "your_admin_password" | shasum -a 256` (copy the hex digest)
+  - To generate JWT secret:
+    - `openssl rand -base64 32`
+
+- Security notes:
+  - Do not put plaintext passwords in code or config.
+  - Prefer short JWT lifetimes (24h or shorter).
+  - Consider additional hardening (IP allowlist, TOTP, session versioning in KV/D1) if needed.
+
 ## 5. Agent Guidelines
 
 This section outlines the operational guidelines for the Gemini CLI Agent when interacting with this project.

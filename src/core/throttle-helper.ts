@@ -88,7 +88,7 @@ export class ApiKeyThrottleHelper implements ApiKeyFeedback {
 			: {};
 
 		// Use provider's min/max throttle durations, fallback to hardcoded defaults if not set
-		const minThrottle = key.provider.minThrottleDuration * 1000;
+		const minThrottle = key.provider.minThrottleDuration * 60 * 1000;
 		const maxThrottle = key.provider.maxThrottleDuration * 60 * 1000;
 
 		let targetKey: string = '_global_'; // Default for BY_KEY throttling
@@ -115,7 +115,7 @@ export class ApiKeyThrottleHelper implements ApiKeyFeedback {
 			console.log(`ApiKey ${key.id} was rate-limited for ${targetKey}. Throttling for ${nextBackoff / 1000}s. Resetting failure count.`);
 		} else if (success) {
 			// If successful, reset throttling and failure status if there was any.
-			if (oldThrottleData && (oldThrottleData.expiration > Date.now() || oldThrottleData.consecutiveFailures > 0)) {
+			if (oldThrottleData && (oldThrottleData.expiration > Date.now() || oldThrottleData.consecutiveFailures > 0 || oldThrottleData.currentBackoffDuration > minThrottle)) {
 				newThrottleData = {
 					expiration: 0,
 					currentBackoffDuration: minThrottle,

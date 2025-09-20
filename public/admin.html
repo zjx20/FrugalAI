@@ -1,0 +1,445 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin - Provider Management</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background-color: #f5f5f5;
+            color: #333;
+            line-height: 1.6;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+
+        .header-content h1 {
+            color: #2c3e50;
+            margin: 0;
+        }
+
+        .header-content p {
+            margin: 5px 0 0;
+            color: #555;
+        }
+
+        .login-form, .admin-panel {
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .login-form {
+            max-width: 400px;
+            margin: 50px auto;
+        }
+
+        .form-group {
+            margin-bottom: 15px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 500;
+            color: #555;
+        }
+
+        input[type="password"], input[type="text"], input[type="number"], textarea, select {
+            width: 100%;
+            padding: 12px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+            transition: border-color 0.3s;
+            background-color: white;
+        }
+
+        input:focus, textarea:focus, select:focus {
+            outline: none;
+            border-color: #3498db;
+        }
+
+        select {
+            cursor: pointer;
+        }
+
+        button {
+            background: #3498db;
+            color: white;
+            padding: 12px 24px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: background-color 0.3s;
+        }
+
+        button:hover {
+            background: #2980b9;
+        }
+
+        button:disabled {
+            background: #bdc3c7;
+            cursor: not-allowed;
+        }
+
+        .error {
+            color: #e74c3c;
+            margin-top: 10px;
+            padding: 10px;
+            background: #fdf2f2;
+            border: 1px solid #fecaca;
+            border-radius: 4px;
+        }
+
+        .success {
+            color: #27ae60;
+            margin-top: 10px;
+            padding: 10px;
+            background: #f0f9f4;
+            border: 1px solid #bbf7d0;
+            border-radius: 4px;
+        }
+
+        .provider-card {
+            background: #f8f9fa;
+            border: 1px solid #e9ecef;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 15px;
+        }
+
+        .provider-header {
+            display: flex;
+            justify-content: between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+
+        .provider-name {
+            font-size: 18px;
+            font-weight: 600;
+            color: #2c3e50;
+        }
+
+        .form-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+            margin-bottom: 15px;
+        }
+
+        .form-row-three {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 15px;
+            margin-bottom: 15px;
+        }
+
+        .models-section {
+            margin-top: 15px;
+        }
+
+        .models-list {
+            background: white;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            padding: 15px;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+
+        .model-item {
+            padding: 5px 0;
+            border-bottom: 1px solid #eee;
+        }
+
+        .model-item:last-child {
+            border-bottom: none;
+        }
+
+        .hidden {
+            display: none;
+        }
+
+        .logout-btn {
+            background: #e74c3c;
+        }
+
+        .logout-btn:hover {
+            background: #c0392b;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 20px;
+            color: #666;
+        }
+
+        @media (max-width: 768px) {
+            .form-row, .form-row-three {
+                grid-template-columns: 1fr;
+            }
+
+            .container {
+                padding: 10px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Login form -->
+        <div id="loginForm" class="login-form">
+            <h2>Admin Login</h2>
+            <form id="loginFormElement">
+                <div class="form-group">
+                    <label for="password">Admin Password:</label>
+                    <input type="password" id="password" required>
+                </div>
+                <button type="submit">Login</button>
+                <div id="loginError" class="error hidden"></div>
+            </form>
+        </div>
+
+        <!-- Admin panel -->
+        <div id="adminPanel" class="hidden">
+            <div class="header">
+                <div class="header-content">
+                    <h1>Provider Management</h1>
+                    <p>Manage AI provider configuration</p>
+                </div>
+                <button class="logout-btn" onclick="logout()">Log out</button>
+            </div>
+
+            <div id="loading" class="loading">Loading...</div>
+            <div id="providersContainer" class="hidden"></div>
+            <div id="adminError" class="error hidden"></div>
+            <div id="adminSuccess" class="success hidden"></div>
+        </div>
+    </div>
+
+    <script>
+        let authToken = localStorage.getItem('adminToken');
+
+        // Check if already authenticated
+        if (authToken) {
+            showAdminPanel();
+        }
+
+        // Login form submit handler
+        document.getElementById('loginFormElement').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const password = document.getElementById('password').value;
+
+            try {
+                const response = await fetch('/admin/login', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ password }),
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    authToken = data.token;
+                    localStorage.setItem('adminToken', authToken);
+                    showAdminPanel();
+                } else {
+                    showError('loginError', data.error || 'Login failed');
+                }
+            } catch (error) {
+                showError('loginError', 'Network error, please retry');
+            }
+        });
+
+        async function showAdminPanel() {
+            document.getElementById('loginForm').classList.add('hidden');
+            document.getElementById('adminPanel').classList.remove('hidden');
+            await loadProviders();
+        }
+
+        async function loadProviders() {
+            try {
+                const response = await fetch('/admin/providers', {
+                    headers: {
+                        'Authorization': `Bearer ${authToken}`,
+                    },
+                });
+
+                if (response.status === 401) {
+                    logout();
+                    return;
+                }
+
+                const providers = await response.json();
+
+                if (response.ok) {
+                    displayProviders(providers);
+                } else {
+                    showError('adminError', providers.error || 'Failed to load');
+                }
+            } catch (error) {
+                showError('adminError', 'Network error, please retry');
+            } finally {
+                document.getElementById('loading').classList.add('hidden');
+            }
+        }
+
+        function displayProviders(providers) {
+            const container = document.getElementById('providersContainer');
+            container.innerHTML = '';
+
+            providers.forEach(provider => {
+                const card = createProviderCard(provider);
+                container.appendChild(card);
+            });
+
+            container.classList.remove('hidden');
+        }
+
+        function createProviderCard(provider) {
+            const card = document.createElement('div');
+            card.className = 'provider-card';
+
+            const models = Array.isArray(provider.models) ? provider.models : [];
+
+            card.innerHTML = `
+                <div class="provider-header">
+                    <div class="provider-name">${provider.name}</div>
+                </div>
+
+                <form onsubmit="updateProvider(event, '${provider.name}')">
+                    <div class="form-row-three">
+                        <div class="form-group">
+                            <label>Throttle mode:</label>
+                            <select name="throttleMode">
+                                <option value="BY_KEY" ${provider.throttleMode === 'BY_KEY' ? 'selected' : ''}>By Key</option>
+                                <option value="BY_MODEL" ${provider.throttleMode === 'BY_MODEL' ? 'selected' : ''}>By Model</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Min throttle duration (minutes):</label>
+                            <input type="number" name="minThrottleDuration" value="${provider.minThrottleDuration}" min="0">
+                        </div>
+                        <div class="form-group">
+                            <label>Max throttle duration (minutes):</label>
+                            <input type="number" name="maxThrottleDuration" value="${provider.maxThrottleDuration}" min="0">
+                        </div>
+                    </div>
+
+                    <div class="models-section">
+                        <div class="form-group">
+                            <label>Supported Models (one per line):</label>
+                            <textarea name="models" rows="5" placeholder="Enter model name, one per line">${models.join('\n')}</textarea>
+                        </div>
+                    </div>
+
+                    <button type="submit">Update configuration</button>
+                </form>
+            `;
+
+            return card;
+        }
+
+        async function updateProvider(event, providerName) {
+            event.preventDefault();
+            const form = event.target;
+            const formData = new FormData(form);
+
+            const models = formData.get('models').split('\n')
+                .map(line => line.trim())
+                .filter(line => line.length > 0);
+
+            const data = {
+                throttleMode: formData.get('throttleMode'),
+                minThrottleDuration: parseInt(formData.get('minThrottleDuration')),
+                maxThrottleDuration: parseInt(formData.get('maxThrottleDuration')),
+                models: models,
+            };
+
+            try {
+                const response = await fetch(`/admin/providers/${providerName}`, {
+                    method: 'PUT',
+                    headers: {
+                        'Authorization': `Bearer ${authToken}`,
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(data),
+                });
+
+                const result = await response.json();
+
+                if (response.ok) {
+                    showSuccess('Configuration updated successfully');
+                    // Reload data after successful update
+                    setTimeout(() => {
+                        document.getElementById('loading').classList.remove('hidden');
+                        document.getElementById('providersContainer').classList.add('hidden');
+                        loadProviders();
+                    }, 1000);
+                } else {
+                    showError('adminError', result.error || 'Update failed');
+                }
+            } catch (error) {
+                showError('adminError', 'Network error, please retry');
+            }
+        }
+
+        function logout() {
+            localStorage.removeItem('adminToken');
+            authToken = null;
+            document.getElementById('adminPanel').classList.add('hidden');
+            document.getElementById('loginForm').classList.remove('hidden');
+            document.getElementById('password').value = '';
+            hideMessages();
+        }
+
+        function showError(elementId, message) {
+            const errorElement = document.getElementById(elementId);
+            errorElement.textContent = message;
+            errorElement.classList.remove('hidden');
+            setTimeout(() => errorElement.classList.add('hidden'), 5000);
+        }
+
+        function showSuccess(message) {
+            const successElement = document.getElementById('adminSuccess');
+            successElement.textContent = message;
+            successElement.classList.remove('hidden');
+            setTimeout(() => successElement.classList.add('hidden'), 3000);
+        }
+
+        function hideMessages() {
+            document.querySelectorAll('.error, .success').forEach(el => {
+                el.classList.add('hidden');
+            });
+        }
+    </script>
+</body>
+</html>

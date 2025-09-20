@@ -67,11 +67,39 @@ npm run deploy
 
 Upon successful deployment, Cloudflare will provide you with a public **Endpoint URL** (e.g., `https://your-worker-name.your-subdomain.workers.dev`).
 
+### 4. (Optional) Setting Up the Administrator Interface
+
+This project includes an administrator interface for managing provider configurations. To enable it, you must set two secret variables in your Cloudflare Worker dashboard. This should be done as part of the deployment process.
+
+1.  **Create `ADMIN_PASSWORD_HASH`**: This is the SHA-256 hash of your desired admin password. Generate it with the following command and copy the output:
+    ```bash
+    echo -n 'your_admin_password' | shasum -a 256
+    ```
+
+2.  **Create `JWT_SECRET`**: This is a secret key for signing authentication tokens. Generate a secure random string with:
+    ```bash
+    openssl rand -base64 32
+    ```
+
+In the Cloudflare dashboard, go to your Worker's **Settings > Variables** and add these two secrets under **Environment Variables**.
+
+Alternatively, you can set them directly from your command line using Wrangler. Run the following commands and paste the secret value when prompted:
+```bash
+npx wrangler secret put ADMIN_PASSWORD_HASH
+npx wrangler secret put JWT_SECRET
+```
+
+#### Accessing the Admin Interface
+
+Once your worker is deployed and the secrets are configured, you can access the admin panel by navigating to `/admin.html` on your worker's URL (e.g., `https://your-worker-name.your-subdomain.workers.dev/admin.html`).
+
 ## User and API Key Management
 
 This project uses a self-service web UI to manage users and their API keys. A single user can manage multiple API keys from different providers, allowing the proxy to rotate through them to handle rate limits.
 
 The setup process involves three main steps:
+
+## User Registration and API Key Setup
 
 ### Step 1: Register and Get Your User Token
 

@@ -3,6 +3,7 @@ import { PrismaClient } from './generated/prisma';
 import { PrismaD1 } from '@prisma/adapter-d1';
 import { Database } from './core/db';
 import userApp from './user';
+import adminApp from './admin';
 import { ApiKeyThrottleHelper } from './core/throttle-helper';
 import { ApiKeyWithProvider, Credential, GeminiRequest, OpenAIRequest, ProviderHandler, ThrottledError, UserWithKeys } from './core/types';
 import { providerHandlerMap } from './core/providers';
@@ -28,6 +29,9 @@ app.use('*', async (c, next) => {
 
 // --- User Management API ---
 app.route('/api', userApp);
+
+// --- Admin Management API ---
+app.route('/admin', adminApp);
 
 
 // --- Core Proxy Logic ---

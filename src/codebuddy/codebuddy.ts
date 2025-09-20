@@ -174,8 +174,9 @@ class CodeBuddyHandler implements ProviderHandler {
 
 			if (response.status === 429) {
 				isRateLimited = true;
-				console.log(`ApiKey ${key.id} was rate-limited.`);
-				return new ThrottledError(`ApiKey ${key.id} was rate-limited.`);
+				const message = await response.text();
+				console.log(`ApiKey ${key.id} was rate-limited. Message: ${message}`);
+				return new ThrottledError(`ApiKey ${key.id} was rate-limited. Message: ${message}`);
 			} else if (response.ok) {
 				success = true;
 			} else {
