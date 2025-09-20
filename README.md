@@ -82,9 +82,13 @@ First, you need a personal User Token to access the management interface and the
 3.  Optionally enter a name and click "Register".
 4.  The page will display your unique **User Token** (prefixed with `sk-`). **Save this token securely**, as it is your API key for all subsequent operations.
 
-### Step 2: Obtain Credentials for the `gemini-code-assist` Provider
+### Step 2: Obtain Credentials for Providers
 
-The core proxy functionality relies on API keys for the `gemini-code-assist` provider. To generate the necessary credentials from a Google account, run the `authorize.mjs` script from your terminal:
+The proxy supports multiple providers. You can obtain credentials for the following providers:
+
+#### `GEMINI_CODE_ASSIST` Provider
+
+The core proxy functionality relies on API keys for the `GEMINI_CODE_ASSIST` provider. To generate the necessary credentials from a Google account, run the `authorize.mjs` script from your terminal:
 
 ```bash
 node authorize.mjs
@@ -97,22 +101,36 @@ This script will:
 
 You can run this script multiple times for different Google accounts to generate multiple credentials.
 
+#### `CODE_BUDDY` Provider
+
+To obtain credentials for the `CODE_BUDDY` provider (macOS only):
+
+1.  Install the CodeBuddy CLI tool by following the instructions at https://www.codebuddy.ai/cli
+2.  Run the CodeBuddy tool and complete the login process
+3.  Extract your authentication key by running the following command in your terminal:
+    ```bash
+    cat "$HOME/Library/Application Support/CodeBuddyExtension/Data/Public/auth/Tencent-Cloud.coding-copilot.info" | base64
+    ```
+4.  The output will be your **Base64 encoded credential string** for the `CODE_BUDDY` provider
+
+**Note:** The credential extraction method above is currently only available for macOS systems. Methods for other operating systems are to be determined.
+
 ### Step 3: Add Your Credentials as an API Key
 
 Now, add the credential(s) you just obtained to your user account via the web UI.
 
 1.  Go back to the user management page. If you are not already logged in, paste your **User Token** from Step 1 into the login field and click "Login".
 2.  In the "Create New API Key" section:
-    -   Select `gemini-code-assist` from the provider dropdown.
+    -   Select the appropriate provider from the dropdown (`GEMINI_CODE_ASSIST` or `CODE_BUDDY`).
     -   Paste the **Base64 encoded credential string** from Step 2 into the "Enter your key from the provider" field.
-    -   Optionally, add a note to remember which Google account this key corresponds to.
+    -   Optionally, add a note to remember which account this key corresponds to.
     -   Click "Create Key".
 
-Your new key will appear in the list. Repeat this step for each credential you generated. The proxy will automatically use all available `gemini-code-assist` keys associated with your user account.
+Your new key will appear in the list. Repeat this step for each credential you generated. The proxy will automatically use all available keys from the selected provider associated with your user account.
 
 ## How to Use the Service
 
-Once you have registered and added at least one `gemini-code-assist` key, you can use the service by providing your **User Token** (the one prefixed with `sk-`) as a Bearer token.
+Once you have registered and added at least one `GEMINI_CODE_ASSIST` key, you can use the service by providing your **User Token** (the one prefixed with `sk-`) as a Bearer token.
 
 ### 1. Test with `curl`
 
@@ -206,7 +224,7 @@ npx prisma migrate diff \
   --from-local-d1 \
   --to-schema-datamodel ./prisma/schema.prisma \
   --script \
-  --output ./migrations/<000X_your_migration_name>/migration.sql
+  --output ./migrations/<000X_your_migration_name>.sql
 ```
 
 -   Make sure to replace the `--output` path with the correct path to the SQL file generated in Step 2.
@@ -234,7 +252,7 @@ Now you can run `npm run dev` to test your changes locally.
 Once you have tested your changes and are ready to deploy, apply the migration to your production D1 database.
 
 ```bash
-npx wrangler d1 migrations apply <YOUR_DATABASE_NAME>
+npx wrangler d1 migrations apply <YOUR_DATABASE_NAME> --remote
 ```
 
 -   Replace `<YOUR_DATABASE_NAME>` with the `database_name` from `wrangler.jsonc`.

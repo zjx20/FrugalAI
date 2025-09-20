@@ -23,20 +23,22 @@ The project has been refactored to use a **Cloudflare D1 database** via the **Pr
 
 ### 3.1. User and API Key Onboarding
 
-The new workflow is entirely centered around the web UI.
+The new workflow is entirely centered around the web UI and supports multiple providers.
 
 1.  **User Registration**: A new user navigates to the worker's `/user.html` page, registers, and receives a persistent User Token (`sk-...`).
-2.  **`gemini-code-assist` Credential Generation**: To use the core proxy, the user runs `node authorize.mjs`. This script handles the Google OAuth flow and outputs a Base64 encoded credential string to the console.
-3.  **API Key Creation**: The user logs into the web UI with their User Token, selects the `gemini-code-assist` provider, and pastes the Base64 string from the previous step into the "key" field to create a new `ApiKey` record in the database.
+2.  **Provider Credential Generation**: Users can obtain credentials for different providers:
+    -   **`GEMINI_CODE_ASSIST`**: Run `node authorize.mjs` to handle the Google OAuth flow and output a Base64 encoded credential string.
+    -   **`CODE_BUDDY`**: Install the CodeBuddy CLI tool from https://www.codebuddy.ai/cli, complete the login process, then extract the authentication key using: `cat "$HOME/Library/Application Support/CodeBuddyExtension/Data/Public/auth/Tencent-Cloud.coding-copilot.info" | base64` (macOS only; other systems TBD).
+3.  **API Key Creation**: The user logs into the web UI with their User Token, selects the appropriate provider (`GEMINI_CODE_ASSIST` or `CODE_BUDDY`), and pastes the Base64 string from the previous step into the "key" field to create a new `ApiKey` record in the database.
 
 ### 3.2. API Request Flow (Core Proxy)
 
 1.  A user makes a request to a `/v1/...` endpoint, providing their User Token in the `Authorization: Bearer <token>` header.
 2.  The `bearerAuth` middleware in `src/index.ts` validates the token and retrieves the user object, including all associated API keys, from the database.
-3.  The endpoint logic filters for usable keys belonging to the `gemini-code-assist` provider (i.e., not rate-limited or permanently failed).
-3.  The worker refreshes the `access_token` if necessary.
-4.  The worker forwards the request to the internal Google Code Assist API, handling fleet key rotation and rate-limiting logic.
-5.  The response is translated back to the standard Gemini API format and returned to the user.
+3.  The endpoint logic filters for usable keys belonging to the appropriate provider (e.g., `GEMINI_CODE_ASSIST` or `CODE_BUDDY`) based on the request (i.e., not rate-limited or permanently failed).
+4.  The worker refreshes the `access_token` if necessary (for providers that require token refresh).
+5.  The worker forwards the request to the corresponding provider's API, handling fleet key rotation and rate-limiting logic.
+6.  The response is translated back to the standard Gemini API format and returned to the user.
 
 ## 4. Database Development Workflow (Prisma & D1)
 
@@ -65,7 +67,7 @@ npx prisma migrate diff \
   --from-local-d1 \
   --to-schema-datamodel ./prisma/schema.prisma \
   --script \
-  --output ./migrations/<000X_your_migration_name>/migration.sql
+  --output ./migrations/<000X_your_migration_name>.sql
 ```
 -   The agent must replace the `--output` path with the correct, newly generated migration file path.
 
@@ -89,7 +91,7 @@ npx prisma generate
 After local testing is complete, apply the migration to the production D1 database.
 
 ```bash
-npx wrangler d1 migrations apply <YOUR_DATABASE_NAME>
+npx wrangler d1 migrations apply <YOUR_DATABASE_NAME> --remote
 ```
 -   `<YOUR_DATABASE_NAME>` is the `database_name` from `wrangler.jsonc`.
 

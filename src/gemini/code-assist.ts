@@ -125,7 +125,6 @@ class GeminiCodeAssistHandler implements ProviderHandler {
 		} catch (e: any) {
 			if (e.response?.data?.error === 'invalid_grant') {
 				console.error(`Permanent failure for ApiKey ${key.id} (invalid_grant): ${e.message}`);
-				key.permanentlyFailed = true;
 				await cred.feedback.reportApiKeyStatus(key, false, false, false, true, ctx); // Report permanent failure
 				return new Error(`ApiKey ${key.id} is permanently failed.`);
 			}
