@@ -31,14 +31,24 @@ The new workflow is entirely centered around the web UI and supports multiple pr
     -   **`CODE_BUDDY`**: Install the CodeBuddy CLI tool from https://www.codebuddy.ai/cli, complete the login process, then extract the authentication key using: `cat "$HOME/Library/Application Support/CodeBuddyExtension/Data/Public/auth/Tencent-Cloud.coding-copilot.info" | base64` (macOS only; other systems TBD).
 3.  **API Key Creation**: The user logs into the web UI with their User Token, selects the appropriate provider (`GEMINI_CODE_ASSIST` or `CODE_BUDDY`), and pastes the Base64 string from the previous step into the "key" field to create a new `ApiKey` record in the database.
 
-### 3.2. API Request Flow (Core Proxy)
+### 3.2. Provider-Specific Model Selection
+
+The system supports **provider-specific model selection** to enable precise control over which provider handles a request when multiple providers support the same model:
+
+1.  **Provider Prefix Format**: Models can be specified as `provider_name/model_name` (e.g., `GEMINI_CODE_ASSIST/gemini-2.5-flash`)
+2.  **Legacy Format Support**: Models can still be specified without a provider prefix (e.g., `gemini-2.5-flash`), in which case the system randomly selects from available providers
+3.  **Model Extraction**: The `extractModel()` function in `src/index.ts` parses the model string to separate the optional provider prefix from the model name
+4.  **Provider Filtering**: The `selectKeys()` function filters API keys based on both the model availability and the specified provider (if any)
+
+### 3.3. API Request Flow (Core Proxy)
 
 1.  A user makes a request to a `/v1/...` endpoint, providing their User Token in the `Authorization: Bearer <token>` header.
 2.  The `bearerAuth` middleware in `src/index.ts` validates the token and retrieves the user object, including all associated API keys, from the database.
-3.  The endpoint logic filters for usable keys belonging to the appropriate provider (e.g., `GEMINI_CODE_ASSIST` or `CODE_BUDDY`) based on the request (i.e., not rate-limited or permanently failed).
-4.  The worker refreshes the `access_token` if necessary (for providers that require token refresh).
-5.  The worker forwards the request to the corresponding provider's API, handling fleet key rotation and rate-limiting logic.
-6.  The response is translated back to the standard Gemini API format and returned to the user.
+3.  The `extractModel()` function parses the requested model to separate the optional provider prefix from the model name.
+4.  The `selectKeys()` function filters for usable keys belonging to the appropriate provider (if specified) and supporting the requested model (i.e., not rate-limited or permanently failed).
+5.  The worker refreshes the `access_token` if necessary (for providers that require token refresh).
+6.  The worker forwards the request to the corresponding provider's API, handling fleet key rotation and rate-limiting logic.
+7.  The response is translated back to the standard Gemini API format and returned to the user.
 
 ## 4. Database Development Workflow (Prisma & D1)
 

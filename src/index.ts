@@ -74,11 +74,18 @@ const proxyAuth = async (c: Context<{ Bindings: Env; Variables: AppVariables }>,
 app.use('/v1/*', proxyAuth);
 app.use('/v1beta/*', proxyAuth);
 
-async function selectKeys(user: UserWithKeys, model: string): Promise<ApiKeyWithProvider[]> {
+function extractModel(model: string): {provider?: string, model: string} {
+	const pos = model.indexOf('/');
+	if (pos < 0) {
+		return {model};
+	}
+	return {provider: model.substring(0, pos), model: model.substring(pos + 1)};
+}
+
+async function selectKeys(user: UserWithKeys, model: string, provider?: string): Promise<ApiKeyWithProvider[]> {
 	const result = [];
 	for (const key of user.keys) {
-		const handler = providerHandlerMap.get(key.providerName);
-		if (!handler) {
+		if (provider && key.providerName !== provider) {
 			continue;
 		}
 		if ((key.provider.models as string[] || []).includes(model)) {
@@ -88,21 +95,23 @@ async function selectKeys(user: UserWithKeys, model: string): Promise<ApiKeyWith
 	return result;
 }
 
-async function getApiKeysAndHandleRequest(c: Context<{ Bindings: Env; Variables: AppVariables }>, model: string, fn: (handler: ProviderHandler, cred: Credential) => Promise<Response | Error>): Promise<Response> {
+async function getApiKeysAndHandleRequest(c: Context<{ Bindings: Env; Variables: AppVariables }>, model: string,
+	fn: (handler: ProviderHandler, adjustedModel: string, cred: Credential) => Promise<Response | Error>): Promise<Response> {
 	const user = c.get('user');
 	const db = c.get('db');
-	const keys = await selectKeys(user, model);
+	const {provider, model: adjustedModel} = extractModel(model);
+	const keys = await selectKeys(user, adjustedModel, provider);
 	if (keys.length == 0) {
 		return c.json({ error: `No keys available for this model "{model}"` }, 500);
 	}
 	const errors: Error[] = [];
-	const throttle = new ApiKeyThrottleHelper(keys, db, undefined, model);
+	const throttle = new ApiKeyThrottleHelper(keys, db, undefined, adjustedModel);
 	for await (const key of throttle.getAvailableKeys()) {
 		const handler = providerHandlerMap.get(key.providerName);
 		if (!handler) {
 			continue;
 		}
-		const response = await fn(handler, { apiKey: key, feedback: throttle });
+		const response = await fn(handler, adjustedModel, { apiKey: key, feedback: throttle });
 		if (response instanceof Error) {
 			errors.push(response);
 			continue;
@@ -119,23 +128,15 @@ async function getApiKeysAndHandleRequest(c: Context<{ Bindings: Env; Variables:
 	return c.json({ error: 'ApiKeys were rate-limited' }, 429);
 }
 
-function extractModel(model: string): string {
-	const parts = model.split(':');
-	if (parts.length === 2) {
-		return parts[1];
-	}
-	return model;
-}
-
 app.post('/v1/chat/completions', async (c) => {
 	const openAIRequestBody: OpenAIRequest = await c.req.json();
-	const model = extractModel(openAIRequestBody.model);
-	return getApiKeysAndHandleRequest(c, model, async (handler, cred) => {
+	return getApiKeysAndHandleRequest(c, openAIRequestBody.model, async (handler, adjustedModel, cred) => {
+		openAIRequestBody.model = adjustedModel;
 		return handler.handleOpenAIRequest(c.executionCtx, openAIRequestBody, cred);
 	});
 });
 
-app.post('/v1beta/models/:modelAndMethod{[a-zA-Z0-9.-]+:[a-zA-Z]+}', async (c) => {
+app.post('/v1beta/models/:modelAndMethod{([a-zA-Z0-9_-]+\\/)?[a-zA-Z0-9.-]+:[a-zA-Z]+}', async (c) => {
 	const modelAndMethod = c.req.param('modelAndMethod');
 	const [model, method] = modelAndMethod.split(':');
 	const sse = c.req.query('alt') === 'sse';
@@ -148,7 +149,8 @@ app.post('/v1beta/models/:modelAndMethod{[a-zA-Z0-9.-]+:[a-zA-Z]+}', async (c) =
 		request: requestBody,
 	};
 
-	return getApiKeysAndHandleRequest(c, model, async (handler, cred) => {
+	return getApiKeysAndHandleRequest(c, model, async (handler, adjustedModel, cred) => {
+		geminiRequest.model = adjustedModel;
 		return handler.handleGeminiRequest(c.executionCtx, geminiRequest, cred);
 	});
 });

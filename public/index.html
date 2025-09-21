@@ -389,6 +389,76 @@
             color: #666;
             font-style: italic;
         }
+
+        /* Custom model dropdown styles */
+        .model-input-container {
+            position: relative;
+            display: flex;
+            align-items: center;
+        }
+
+        .model-input-container #model-select {
+            flex: 1;
+            padding-right: 40px; /* Make room for dropdown button */
+        }
+
+        .dropdown-btn {
+            position: absolute;
+            right: 8px;
+            top: 50%;
+            transform: translateY(-50%);
+            background: none;
+            border: none;
+            color: #666;
+            cursor: pointer;
+            padding: 5px;
+            font-size: 12px;
+            z-index: 2;
+            transition: color 0.3s;
+        }
+
+        .dropdown-btn:hover {
+            color: #42a5f5;
+            background: none;
+            box-shadow: none;
+        }
+
+        .model-dropdown {
+            position: absolute;
+            top: 100%;
+            left: 0;
+            right: 0;
+            background: white;
+            border: 1px solid #b0bec5;
+            border-top: none;
+            border-radius: 0 0 6px 6px;
+            max-height: 200px;
+            overflow-y: auto;
+            z-index: 1000;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+        }
+
+        .model-dropdown-item {
+            padding: 10px 12px;
+            cursor: pointer;
+            border-bottom: 1px solid #f0f0f0;
+            transition: background-color 0.2s;
+        }
+
+        .model-dropdown-item:hover {
+            background-color: #f5f5f5;
+        }
+
+        .model-dropdown-item:last-child {
+            border-bottom: none;
+        }
+
+        .model-dropdown-empty {
+            padding: 10px 12px;
+            color: #666;
+            font-style: italic;
+            text-align: center;
+        }
     </style>
 </head>
 <body>
@@ -407,9 +477,13 @@
 
             <div class="model-selection-section">
                 <h2>Select Model</h2>
-                <select id="model-select">
-                    <!-- Models will be populated by JavaScript -->
-                </select>
+                <div class="model-input-container">
+                    <input type="text" id="model-select" placeholder="Select or type model name (e.g., GEMINI_CODE_ASSIST/gemini-2.5-flash)">
+                    <button type="button" id="model-dropdown-btn" class="dropdown-btn">▼</button>
+                    <div id="model-dropdown" class="model-dropdown" style="display: none;">
+                        <!-- Models will be populated by JavaScript -->
+                    </div>
+                </div>
             </div>
 
             <div class="api-protocol-section">
@@ -517,15 +591,16 @@
         }
 
         function populateModelSelect(models = []) {
-            modelSelect.innerHTML = ''; // Clear existing options
+            const modelDropdown = document.getElementById('model-dropdown');
+            modelDropdown.innerHTML = ''; // Clear existing options
 
             if (models.length === 0) {
-                const option = document.createElement('option');
-                option.value = '';
-                option.textContent = 'No models available - please add a valid API key';
-                option.disabled = true;
-                option.selected = true;
-                modelSelect.appendChild(option);
+                modelSelect.placeholder = 'No models available - please add a valid API key';
+                modelSelect.value = '';
+                const emptyItem = document.createElement('div');
+                emptyItem.className = 'model-dropdown-empty';
+                emptyItem.textContent = 'No models available';
+                modelDropdown.appendChild(emptyItem);
                 return;
             }
 
@@ -534,20 +609,26 @@
                 const { provider, models: providerModels } = providerData;
 
                 providerModels.forEach(model => {
-                    const option = document.createElement('option');
-                    option.value = model;
-                    option.textContent = `${model} (${provider})`;
+                    const modelValue = `${provider}/${model}`;
+                    const item = document.createElement('div');
+                    item.className = 'model-dropdown-item';
+                    item.textContent = modelValue;
+                    item.addEventListener('click', () => {
+                        modelSelect.value = modelValue;
+                        hideModelDropdown();
+                    });
 
                     if (!firstModel) {
-                        firstModel = model;
-                        option.selected = true;
+                        firstModel = modelValue;
                     }
 
-                    modelSelect.appendChild(option);
+                    modelDropdown.appendChild(item);
                 });
             });
 
             DEFAULT_MODEL = firstModel;
+            modelSelect.value = firstModel;
+            modelSelect.placeholder = 'Select or type model name (e.g., GEMINI_CODE_ASSIST/gemini-2.5-flash)';
         }
 
         async function loadModelsForApiKey(apiKey) {
@@ -557,7 +638,9 @@
             }
 
             // Show loading state
-            modelSelect.innerHTML = '<option class="model-loading">Loading models...</option>';
+            modelSelect.placeholder = 'Loading models...';
+            modelSelect.value = '';
+            modelSelect.disabled = true;
             hideApiKeyError();
 
             try {
@@ -573,6 +656,8 @@
                 } else {
                     showApiKeyError(`Failed to load models: ${error.message}`);
                 }
+            } finally {
+                modelSelect.disabled = false;
             }
         }
 
@@ -1185,6 +1270,70 @@
                 localStorage.removeItem('chatHistory');
                 conversationHistory = [];
                 renderChatHistory(); // Re-render to clear the UI
+            }
+        });
+
+        // --- Custom Dropdown Logic ---
+        const modelDropdownBtn = document.getElementById('model-dropdown-btn');
+        const modelDropdown = document.getElementById('model-dropdown');
+
+        function showModelDropdown() {
+            modelDropdown.style.display = 'block';
+            modelDropdownBtn.textContent = '▲';
+        }
+
+        function hideModelDropdown() {
+            modelDropdown.style.display = 'none';
+            modelDropdownBtn.textContent = '▼';
+        }
+
+        function toggleModelDropdown() {
+            if (modelDropdown.style.display === 'none') {
+                showModelDropdown();
+            } else {
+                hideModelDropdown();
+            }
+        }
+
+        // Dropdown button click handler
+        modelDropdownBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            toggleModelDropdown();
+        });
+
+        // Hide dropdown when clicking outside
+        document.addEventListener('click', (e) => {
+            if (!e.target.closest('.model-input-container')) {
+                hideModelDropdown();
+            }
+        });
+
+        // Show dropdown when input is focused and has models
+        modelSelect.addEventListener('focus', () => {
+            if (availableModels.length > 0) {
+                showModelDropdown();
+            }
+        });
+
+        // Filter dropdown items based on input
+        modelSelect.addEventListener('input', () => {
+            const searchTerm = modelSelect.value.toLowerCase();
+            const items = modelDropdown.querySelectorAll('.model-dropdown-item');
+
+            items.forEach(item => {
+                const text = item.textContent.toLowerCase();
+                if (text.includes(searchTerm)) {
+                    item.style.display = 'block';
+                } else {
+                    item.style.display = 'none';
+                }
+            });
+
+            // Show dropdown if there are visible items
+            const visibleItems = Array.from(items).some(item => item.style.display !== 'none');
+            if (visibleItems && searchTerm) {
+                showModelDropdown();
             }
         });
 

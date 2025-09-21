@@ -160,6 +160,18 @@ Your new key will appear in the list. Repeat this step for each credential you g
 
 Once you have registered and added at least one `GEMINI_CODE_ASSIST` key, you can use the service by providing your **User Token** (the one prefixed with `sk-`) as a Bearer token.
 
+### Provider-Specific Model Selection
+
+The service supports **provider-specific model selection** to give you precise control over which provider to use when multiple providers support the same model. You can specify models in two ways:
+
+1. **With Provider Prefix** (Recommended): `provider_name/model_name`
+   - Example: `GEMINI_CODE_ASSIST/gemini-2.5-flash` or `CODE_BUDDY/gemini-2.5-pro`
+   - This ensures your request uses the specified provider
+
+2. **Without Provider Prefix**: `model_name`
+   - Example: `gemini-2.5-flash`
+   - The system will randomly select from available providers that support this model
+
 ### 1. Test with `curl`
 
 You can use `curl` to call the API directly. The proxy exposes two compatible endpoints: one for the OpenAI API and one for the Google Gemini API.
@@ -171,7 +183,7 @@ curl -X POST "<your_endpoint_url>/v1/chat/completions" \
      -H "Authorization: Bearer <YOUR_USER_TOKEN>" \
      -H "Content-Type: application/json" \
      -d '{
-           "model": "gemini-2.5-flash",
+           "model": "GEMINI_CODE_ASSIST/gemini-2.5-flash",
            "messages": [{
              "role": "user",
              "content": "Hello, tell me about yourself."
@@ -182,7 +194,7 @@ curl -X POST "<your_endpoint_url>/v1/chat/completions" \
 **Google Gemini-Compatible Endpoint:**
 
 ```bash
-curl -X POST "<your_endpoint_url>/v1beta/models/gemini-2.5-flash:generateContent" \
+curl -X POST "<your_endpoint_url>/v1beta/models/GEMINI_CODE_ASSIST/gemini-2.5-flash:generateContent" \
      -H "x-goog-api-key: <YOUR_USER_TOKEN>" \
      -H "Content-Type: application/json" \
      -d '{
