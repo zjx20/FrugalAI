@@ -49,13 +49,6 @@ export enum Protocol {
 
 export interface ProviderHandler {
 	/**
-	 * Checks if the provider can handle a given model.
-	 * @param modelName The name of the model to check.
-	 * @returns True if the model is supported, false otherwise.
-	 */
-	canHandleModel(modelName: string): Promise<boolean>;
-
-	/**
 	 * Returns the list of API protocols supported by the provider.
 	 */
 	supportedProtocols(): Protocol[];

@@ -76,12 +76,6 @@ class CodeAssistUnwrapTransformer implements Transformer<Uint8Array, Uint8Array>
 }
 
 class GeminiCodeAssistHandler implements ProviderHandler {
-	async canHandleModel(modelName: string): Promise<boolean> {
-		// Assuming GEMINI_CODE_ASSIST can handle all gemini models.
-		// A more specific check might be needed in a real-world scenario.
-		return modelName.startsWith('gemini-');
-	}
-
 	supportedProtocols(): Protocol[] {
 		return [Protocol.OpenAI, Protocol.Gemini];
 	}
@@ -171,8 +165,9 @@ class GeminiCodeAssistHandler implements ProviderHandler {
 
 			if (response.status === 429) {
 				isRateLimited = true;
-				console.log(`ApiKey ${key.id} was rate-limited.`);
-				return new ThrottledError(`ApiKey ${key.id} was rate-limited.`);
+				const message = await response.text();
+				console.log(`ApiKey ${key.id} was rate-limited. Message: ${message}`);
+				return new ThrottledError(`ApiKey ${key.id} was rate-limited. Message: ${message}`);
 			} else if (response.ok) {
 				success = true;
 			} else {

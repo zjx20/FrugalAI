@@ -1,18 +1,5 @@
-import { encodeBase64 } from "hono/utils/encode";
 import { AnthropicRequest, Credential, GeminiRequest, OpenAIRequest, Protocol, ProviderHandler, ThrottledError } from "../core/types";
 import crypto from 'crypto';
-
-const supportedModels = [
-	"claude-4.0",
-	"gemini-2.5-flash",
-	"gemini-2.5-pro",
-	"gpt-5",
-	"gpt-5-mini",
-	"gpt-5-nano",
-	"o4-mini",
-	"deepseek-v3-1-lkeap",
-	"deepseek-v3-0324-lkeap",
-];
 
 interface codeBuddyAccount {
 	uid: string
@@ -33,10 +20,6 @@ const codeBuddyVersion = '1.1.4';
 const userAgent = `CLI/${codeBuddyVersion} CodeBuddy/${codeBuddyVersion}`;
 
 class CodeBuddyHandler implements ProviderHandler {
-	async canHandleModel(modelName: string): Promise<boolean> {
-		return supportedModels.indexOf(modelName.toLowerCase()) >= 0;
-	}
-
 	supportedProtocols(): Protocol[] {
 		return [Protocol.OpenAI];
 	}
@@ -110,6 +93,8 @@ class CodeBuddyHandler implements ProviderHandler {
 					console.error(`Permanent failure for ApiKey ${key.id}, message: ${await resp.text()}`);
 					await cred.feedback.reportApiKeyStatus(key, false, false, false, true, ctx); // Report permanent failure
 					return new Error(`ApiKey ${key.id} is permanently failed.`);
+				} else {
+					throw new Error(`Unknown error, status: ${resp.status}, message: ${await resp.text()}`);
 				}
 			} catch (e: any) {
 				console.error(`Error refreshing token for ApiKey ${key.id}:`, e);

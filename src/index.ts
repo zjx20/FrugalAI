@@ -81,7 +81,7 @@ async function selectKeys(user: UserWithKeys, model: string): Promise<ApiKeyWith
 		if (!handler) {
 			continue;
 		}
-		if (await handler.canHandleModel(model)) {
+		if ((key.provider.models as string[] || []).includes(model)) {
 			result.push(key);
 		}
 	}
@@ -99,7 +99,7 @@ async function getApiKeysAndHandleRequest(c: Context<{ Bindings: Env; Variables:
 	const throttle = new ApiKeyThrottleHelper(keys, db, undefined, model);
 	for await (const key of throttle.getAvailableKeys()) {
 		const handler = providerHandlerMap.get(key.providerName);
-		if (!handler || !(await handler.canHandleModel(model))) {
+		if (!handler) {
 			continue;
 		}
 		const response = await fn(handler, { apiKey: key, feedback: throttle });
