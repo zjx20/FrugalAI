@@ -375,6 +375,20 @@
             color: #bbb;
             text-decoration: none;
         }
+
+        /* Error message styling */
+        .error-message {
+            color: #f44336;
+            font-size: 0.9em;
+            margin-top: 5px;
+            display: none;
+        }
+
+        /* Loading state for model select */
+        .model-loading {
+            color: #666;
+            font-style: italic;
+        }
     </style>
 </head>
 <body>
@@ -388,6 +402,7 @@
                     <input type="text" id="api-key-input" placeholder="Paste your API key here">
                     <button id="save-key-button">Save Key</button>
                 </div>
+                <div id="api-key-error" class="error-message"></div>
             </div>
 
             <div class="model-selection-section">
@@ -429,13 +444,8 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
     <script>
         // --- Model Configuration ---
-        const MODELS = [
-            { value: 'gemini-2.5-pro', displayName: 'Gemini 2.5 Pro' },
-            { value: 'gemini-2.5-flash', displayName: 'Gemini 2.5 Flash' },
-            { value: 'gemini-2.5-flash-lite', displayName: 'Gemini 2.5 Flash Lite' },
-            // Add more models here in the future
-        ];
-        const DEFAULT_MODEL = 'gemini-2.5-flash';
+        let availableModels = [];
+        let DEFAULT_MODEL = '';
 
         const apiKeyInput = document.getElementById('api-key-input');
         const saveKeyButton = document.getElementById('save-key-button');
@@ -470,18 +480,100 @@
             }
         }
 
-        // --- UI Initialization ---
-        function populateModelSelect() {
-            modelSelect.innerHTML = ''; // Clear existing options
-            MODELS.forEach(model => {
-                const option = document.createElement('option');
-                option.value = model.value;
-                option.textContent = model.displayName;
-                if (model.value === DEFAULT_MODEL) {
-                    option.selected = true;
+        // --- Dynamic Model Loading ---
+        async function fetchAvailableModels(apiKey) {
+            try {
+                const response = await fetch('/api/user/available-models', {
+                    method: 'GET',
+                    headers: {
+                        'Authorization': `Bearer ${apiKey}`
+                    }
+                });
+
+                if (!response.ok) {
+                    if (response.status === 401) {
+                        throw new Error('Invalid API key');
+                    }
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
                 }
+
+                const models = await response.json();
+                return models;
+            } catch (error) {
+                console.error('Error fetching models:', error);
+                throw error;
+            }
+        }
+
+        function showApiKeyError(message) {
+            const errorElement = document.getElementById('api-key-error');
+            errorElement.textContent = message;
+            errorElement.style.display = 'block';
+        }
+
+        function hideApiKeyError() {
+            const errorElement = document.getElementById('api-key-error');
+            errorElement.style.display = 'none';
+        }
+
+        function populateModelSelect(models = []) {
+            modelSelect.innerHTML = ''; // Clear existing options
+
+            if (models.length === 0) {
+                const option = document.createElement('option');
+                option.value = '';
+                option.textContent = 'No models available - please add a valid API key';
+                option.disabled = true;
+                option.selected = true;
                 modelSelect.appendChild(option);
+                return;
+            }
+
+            let firstModel = '';
+            models.forEach(providerData => {
+                const { provider, models: providerModels } = providerData;
+
+                providerModels.forEach(model => {
+                    const option = document.createElement('option');
+                    option.value = model;
+                    option.textContent = `${model} (${provider})`;
+
+                    if (!firstModel) {
+                        firstModel = model;
+                        option.selected = true;
+                    }
+
+                    modelSelect.appendChild(option);
+                });
             });
+
+            DEFAULT_MODEL = firstModel;
+        }
+
+        async function loadModelsForApiKey(apiKey) {
+            if (!apiKey) {
+                populateModelSelect([]);
+                return;
+            }
+
+            // Show loading state
+            modelSelect.innerHTML = '<option class="model-loading">Loading models...</option>';
+            hideApiKeyError();
+
+            try {
+                const models = await fetchAvailableModels(apiKey);
+                availableModels = models;
+                populateModelSelect(models);
+            } catch (error) {
+                console.error('Failed to load models:', error);
+                populateModelSelect([]);
+
+                if (error.message === 'Invalid API key') {
+                    showApiKeyError('Invalid API key. Please check your API key and try again.');
+                } else {
+                    showApiKeyError(`Failed to load models: ${error.message}`);
+                }
+            }
         }
 
         attachImageButton.addEventListener('click', () => {
@@ -522,6 +614,11 @@
         const savedApiKey = localStorage.getItem('apiKey');
         if (savedApiKey) {
             apiKeyInput.value = savedApiKey;
+            // Load models for the saved API key
+            loadModelsForApiKey(savedApiKey);
+        } else {
+            // No API key, show empty model select
+            populateModelSelect([]);
         }
 
         // Load API protocol from localStorage
@@ -530,11 +627,27 @@
             apiProtocolSelect.value = savedApiProtocol;
         }
 
-        saveKeyButton.addEventListener('click', () => {
-            const key = apiKeyInput.value;
+        // Listen for API key input changes
+        apiKeyInput.addEventListener('input', () => {
+            const key = apiKeyInput.value.trim();
+            if (key) {
+                loadModelsForApiKey(key);
+            } else {
+                populateModelSelect([]);
+                hideApiKeyError();
+            }
+        });
+
+        saveKeyButton.addEventListener('click', async () => {
+            const key = apiKeyInput.value.trim();
             if (key) {
                 localStorage.setItem('apiKey', key);
-                alert('API Key saved!');
+                await loadModelsForApiKey(key);
+                if (availableModels.length > 0) {
+                    alert('API Key saved and models loaded!');
+                } else {
+                    alert('API Key saved, but no models are available.');
+                }
             } else {
                 alert('Please enter an API Key.');
             }
@@ -1077,7 +1190,6 @@
 
         // Load chat history on page load
         loadChatHistory();
-        populateModelSelect();
 
         // --- Image Modal Logic ---
         const modal = document.getElementById("image-modal");

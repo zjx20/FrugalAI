@@ -56,9 +56,55 @@ app.use('/user/keys/*', bearerAuth({
 	}
 }));
 
+app.use('/user/available-models', bearerAuth({
+	verifyToken: async (token, c) => {
+		const db = c.get('db');
+		const user = await db.findUserByToken(token);
+		if (user) {
+			c.set('user', user);
+			return true;
+		}
+		return false;
+	}
+}));
+
 app.get('/user/keys', (c) => {
 	const user = c.get('user');
 	return c.json(user.keys);
+});
+
+app.get('/user/available-models', (c) => {
+	const user = c.get('user');
+	const availableModels: { provider: string, models: string[] }[] = [];
+
+	// Group models by provider
+	const providerModelsMap = new Map<string, string[]>();
+
+	user.keys.forEach((key: any) => {
+		if (!key.permanentlyFailed && key.provider.models) {
+			const providerName = key.providerName;
+			const models = key.provider.models as string[];
+
+			if (!providerModelsMap.has(providerName)) {
+				providerModelsMap.set(providerName, []);
+			}
+
+			// Add models that aren't already in the list
+			models.forEach(model => {
+				const existingModels = providerModelsMap.get(providerName)!;
+				if (!existingModels.includes(model)) {
+					existingModels.push(model);
+				}
+			});
+		}
+	});
+
+	// Convert map to array format
+	providerModelsMap.forEach((models, provider) => {
+		availableModels.push({ provider, models });
+	});
+
+	return c.json(availableModels);
 });
 
 app.post('/user/keys', async (c) => {
