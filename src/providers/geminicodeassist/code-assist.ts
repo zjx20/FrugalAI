@@ -1,6 +1,6 @@
 
 import { OAuth2Client } from "google-auth-library";
-import { ExecutionContext, Protocol, ProviderHandler, OpenAIRequest, GeminiRequest, AnthropicRequest, Credential, ThrottledError } from "../core/types";
+import { ExecutionContext, Protocol, ProviderHandler, OpenAIRequest, GeminiRequest, AnthropicRequest, Credential, ThrottledError } from "../../core/types";
 import { convertChatCompletionCreateToGemini, convertGoogleResponseToOpenAi, GoogleToOpenAiSseTransformer } from "./openai-adapter";
 
 const CODE_ASSIST_ENDPOINT = 'https://cloudcode-pa.googleapis.com';

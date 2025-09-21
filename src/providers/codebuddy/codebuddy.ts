@@ -1,4 +1,4 @@
-import { AnthropicRequest, Credential, GeminiRequest, OpenAIRequest, Protocol, ProviderHandler, ThrottledError } from "../core/types";
+import { AnthropicRequest, Credential, GeminiRequest, OpenAIRequest, Protocol, ProviderHandler, ThrottledError } from "../../core/types";
 import crypto from 'crypto';
 
 interface codeBuddyAccount {

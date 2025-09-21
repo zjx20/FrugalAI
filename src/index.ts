@@ -6,7 +6,7 @@ import userApp from './user';
 import adminApp from './admin';
 import { ApiKeyThrottleHelper } from './core/throttle-helper';
 import { ApiKeyWithProvider, Credential, GeminiRequest, OpenAIRequest, ProviderHandler, ThrottledError, UserWithKeys } from './core/types';
-import { providerHandlerMap } from './core/providers';
+import { providerHandlerMap } from './providers/providers';
 
 export interface Env {
 	DB: D1Database;
