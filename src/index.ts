@@ -5,7 +5,7 @@ import { Database } from './core/db';
 import userApp from './user';
 import adminApp from './admin';
 import { ApiKeyThrottleHelper } from './core/throttle-helper';
-import { ApiKeyWithProvider, Credential, GeminiRequest, OpenAIRequest, ProviderHandler, ThrottledError, UserWithKeys } from './core/types';
+import { ApiKeyWithProvider, Credential, GeminiRequest, OpenAIRequest, Protocol, ProviderHandler, ThrottledError, UserWithKeys } from './core/types';
 import { providerHandlerMap } from './providers/providers';
 
 export interface Env {
@@ -74,18 +74,25 @@ const proxyAuth = async (c: Context<{ Bindings: Env; Variables: AppVariables }>,
 app.use('/v1/*', proxyAuth);
 app.use('/v1beta/*', proxyAuth);
 
-function extractModel(model: string): {provider?: string, model: string} {
+function extractModel(model: string): { provider?: string, model: string } {
 	const pos = model.indexOf('/');
 	if (pos < 0) {
-		return {model};
+		return { model };
 	}
-	return {provider: model.substring(0, pos), model: model.substring(pos + 1)};
+	return { provider: model.substring(0, pos), model: model.substring(pos + 1) };
 }
 
-async function selectKeys(user: UserWithKeys, model: string, provider?: string): Promise<ApiKeyWithProvider[]> {
+async function selectKeys(user: UserWithKeys, protocol: Protocol, model: string, provider?: string): Promise<ApiKeyWithProvider[]> {
 	const result = [];
 	for (const key of user.keys) {
 		if (provider && key.providerName !== provider) {
+			continue;
+		}
+		const handler = providerHandlerMap.get(key.providerName);
+		if (!handler) {
+			continue;
+		}
+		if (!(handler.supportedProtocols() || []).includes(protocol)) {
 			continue;
 		}
 		if ((key.provider.models as string[] || []).includes(model)) {
@@ -95,12 +102,16 @@ async function selectKeys(user: UserWithKeys, model: string, provider?: string):
 	return result;
 }
 
-async function getApiKeysAndHandleRequest(c: Context<{ Bindings: Env; Variables: AppVariables }>, model: string,
+async function getApiKeysAndHandleRequest(
+	c: Context<{ Bindings: Env; Variables: AppVariables }>,
+	protocol: Protocol,
+	model: string,
 	fn: (handler: ProviderHandler, adjustedModel: string, cred: Credential) => Promise<Response | Error>): Promise<Response> {
+
 	const user = c.get('user');
 	const db = c.get('db');
-	const {provider, model: adjustedModel} = extractModel(model);
-	const keys = await selectKeys(user, adjustedModel, provider);
+	const { provider, model: adjustedModel } = extractModel(model);
+	const keys = await selectKeys(user, protocol, adjustedModel, provider);
 	if (keys.length == 0) {
 		return c.json({ error: `No keys available for this model "{model}"` }, 500);
 	}
@@ -130,7 +141,7 @@ async function getApiKeysAndHandleRequest(c: Context<{ Bindings: Env; Variables:
 
 app.post('/v1/chat/completions', async (c) => {
 	const openAIRequestBody: OpenAIRequest = await c.req.json();
-	return getApiKeysAndHandleRequest(c, openAIRequestBody.model, async (handler, adjustedModel, cred) => {
+	return getApiKeysAndHandleRequest(c, Protocol.OpenAI, openAIRequestBody.model, async (handler, adjustedModel, cred) => {
 		openAIRequestBody.model = adjustedModel;
 		return handler.handleOpenAIRequest(c.executionCtx, openAIRequestBody, cred);
 	});
@@ -149,7 +160,7 @@ app.post('/v1beta/models/:modelAndMethod{([a-zA-Z0-9_-]+\\/)?[a-zA-Z0-9.-]+:[a-z
 		request: requestBody,
 	};
 
-	return getApiKeysAndHandleRequest(c, model, async (handler, adjustedModel, cred) => {
+	return getApiKeysAndHandleRequest(c, Protocol.Gemini, model, async (handler, adjustedModel, cred) => {
 		geminiRequest.model = adjustedModel;
 		return handler.handleGeminiRequest(c.executionCtx, geminiRequest, cred);
 	});
