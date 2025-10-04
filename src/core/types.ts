@@ -54,6 +54,27 @@ export interface ProviderHandler {
 	supportedProtocols(): Protocol[];
 
 	/**
+	 * Validates whether the given API key is eligible to invoke the specified model.
+	 *
+	 * Important:
+	 * - At the time this method is called, the model has ALREADY been verified as supported by the provider
+	 *   (e.g., via provider-level supported model lists or upstream routing checks).
+	 * - This method should NOT determine provider-wide model support. Instead, it should decide per-key eligibility.
+	 *
+	 * Implementation guidance:
+	 * - Use the provider metadata attached to the ApiKey (e.g., plan/tier, region, quotas, feature flags)
+	 *   to determine whether this specific key can access the model.
+	 * - Example: A key on a "pro" plan may access higher-tier models, while a "basic" plan cannot.
+	 * - Return false for keys that do not meet the required plan/tier, region, quota, or feature flags.
+	 * - Avoid performing network calls; this should be a synchronous compatibility check.
+	 *
+	 * @param apiKey The API key record including provider metadata (plan/tier, region, quotas, flags).
+	 * @param model The already-provider-supported model identifier (e.g., "gpt-4o-mini", "gemini-1.5-pro").
+	 * @returns True if this API key is authorized/eligible to call the model; otherwise false.
+	 */
+	canAccessModelWithKey(apiKey: ApiKeyWithProvider, model: string): boolean;
+
+	/**
 	 * Handles a request using the OpenAI API protocol.
 	 * @param ctx The execution context from the environment.
 	 * @param request The request object, conforming to OpenAI's standards.

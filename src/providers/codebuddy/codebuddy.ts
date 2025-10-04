@@ -1,4 +1,4 @@
-import { AnthropicRequest, Credential, GeminiRequest, OpenAIRequest, Protocol, ProviderHandler, ThrottledError } from "../../core/types";
+import { AnthropicRequest, ApiKeyWithProvider, Credential, GeminiRequest, OpenAIRequest, Protocol, ProviderHandler, ThrottledError } from "../../core/types";
 import crypto from 'crypto';
 
 interface codeBuddyAccount {
@@ -22,6 +22,10 @@ const userAgent = `CLI/${codeBuddyVersion} CodeBuddy/${codeBuddyVersion}`;
 class CodeBuddyHandler implements ProviderHandler {
 	supportedProtocols(): Protocol[] {
 		return [Protocol.OpenAI];
+	}
+
+	canAccessModelWithKey(apiKey: ApiKeyWithProvider, model: string): boolean {
+		return true;
 	}
 
 	private parseKeyData(keyData: any): { account: codeBuddyAccount, auth: codeBuddyAuthCredential } {

@@ -74,16 +74,25 @@ const proxyAuth = async (c: Context<{ Bindings: Env; Variables: AppVariables }>,
 app.use('/v1/*', proxyAuth);
 app.use('/v1beta/*', proxyAuth);
 
-function extractModel(model: string): { provider?: string, model: string } {
-	const pos = model.indexOf('/');
-	if (pos < 0) {
-		return { model };
+function extractModel(model: string): { provider?: string, model: string, alias?: string } {
+	var provider: string | undefined = undefined;
+	const pPos = model.indexOf('/');
+	if (pPos >= 0) {
+		provider = model.substring(0, pPos);
+		model = model.substring(pPos + 1);
 	}
-	return { provider: model.substring(0, pos), model: model.substring(pos + 1) };
+	var alias: string | undefined = undefined;
+	const aPos = model.lastIndexOf('$');
+	if (aPos >= 0) {
+		alias = model.substring(aPos + 1);
+		model = model.substring(0, aPos);
+	}
+	return { provider, model, alias };
 }
 
-async function selectKeys(user: UserWithKeys, protocol: Protocol, model: string, provider?: string): Promise<ApiKeyWithProvider[]> {
+async function selectKeys(user: UserWithKeys, protocol: Protocol, model: string, alias?: string, provider?: string): Promise<ApiKeyWithProvider[]> {
 	const result = [];
+	const fullModelName = alias ? (model + '$' + alias) : model;
 	for (const key of user.keys) {
 		if (provider && key.providerName !== provider) {
 			continue;
@@ -95,9 +104,13 @@ async function selectKeys(user: UserWithKeys, protocol: Protocol, model: string,
 		if (!(handler.supportedProtocols() || []).includes(protocol)) {
 			continue;
 		}
-		if ((key.provider.models as string[] || []).includes(model)) {
-			result.push(key);
+		if (!(key.provider.models as string[] || []).some(x => x === fullModelName || x.startsWith(model + '$'))) {
+			continue;
 		}
+		if (!handler.canAccessModelWithKey(key, model)) {
+			continue;
+		}
+		result.push(key);
 	}
 	return result;
 }
@@ -105,24 +118,24 @@ async function selectKeys(user: UserWithKeys, protocol: Protocol, model: string,
 async function getApiKeysAndHandleRequest(
 	c: Context<{ Bindings: Env; Variables: AppVariables }>,
 	protocol: Protocol,
-	model: string,
+	reqModel: string,
 	fn: (handler: ProviderHandler, adjustedModel: string, cred: Credential) => Promise<Response | Error>): Promise<Response> {
 
 	const user = c.get('user');
 	const db = c.get('db');
-	const { provider, model: adjustedModel } = extractModel(model);
-	const keys = await selectKeys(user, protocol, adjustedModel, provider);
+	const { provider, model, alias } = extractModel(reqModel);
+	const keys = await selectKeys(user, protocol, model, alias, provider);
 	if (keys.length == 0) {
-		return c.json({ error: `No keys available for this model "{model}"` }, 500);
+		return c.json({ error: `No keys available for this model "${reqModel}"` }, 500);
 	}
 	const errors: Error[] = [];
-	const throttle = new ApiKeyThrottleHelper(keys, db, undefined, adjustedModel);
+	const throttle = new ApiKeyThrottleHelper(keys, db, undefined, model);
 	for await (const key of throttle.getAvailableKeys()) {
 		const handler = providerHandlerMap.get(key.providerName);
 		if (!handler) {
 			continue;
 		}
-		const response = await fn(handler, adjustedModel, { apiKey: key, feedback: throttle });
+		const response = await fn(handler, model, { apiKey: key, feedback: throttle });
 		if (response instanceof Error) {
 			errors.push(response);
 			continue;
@@ -147,7 +160,7 @@ app.post('/v1/chat/completions', async (c) => {
 	});
 });
 
-app.post('/v1beta/models/:modelAndMethod{([a-zA-Z0-9_-]+\\/)?[a-zA-Z0-9.-]+:[a-zA-Z]+}', async (c) => {
+app.post('/v1beta/models/:modelAndMethod{([a-zA-Z0-9_-]+\\/)?[a-zA-Z0-9.-]+(\\$[a-zA-Z0-9.-]+)?:[a-zA-Z]+}', async (c) => {
 	const modelAndMethod = c.req.param('modelAndMethod');
 	const [model, method] = modelAndMethod.split(':');
 	const sse = c.req.query('alt') === 'sse';
