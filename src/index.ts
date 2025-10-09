@@ -94,6 +94,9 @@ async function selectKeys(user: UserWithKeys, protocol: Protocol, model: string,
 	const result = [];
 	const fullModelName = alias ? (model + '$' + alias) : model;
 	for (const key of user.keys) {
+		if (((key.throttleData || {}) as any).paused) {
+			continue; // Skip paused keys
+		}
 		if (provider && key.providerName !== provider) {
 			continue;
 		}

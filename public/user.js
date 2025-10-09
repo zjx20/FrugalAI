@@ -128,6 +128,11 @@ document.addEventListener('DOMContentLoaded', () => {
       return '<span title="This key is permanently disabled due to repeated critical failures.">🔴 Permanently Failed</span>';
     }
 
+    // Check if the key is paused first
+    if (key.throttleData && typeof key.throttleData === 'object' && key.throttleData.paused) {
+      return '<span title="This key has been manually paused and is temporarily disabled.">⏸️ Paused</span>';
+    }
+
     // Throttle data can be complex, so we need to check the relevant part (global or model-specific)
     // For simplicity in this UI, we'll just check if any throttleData exists and is active.
     // A more advanced UI could inspect the specific model being used.
@@ -188,12 +193,29 @@ document.addEventListener('DOMContentLoaded', () => {
             resetButton.title = 'No issues to reset';
           }
 
+          const pauseButton = document.createElement('button');
+          const isPaused = key.throttleData && typeof key.throttleData === 'object' && key.throttleData.paused;
+          if (isPaused) {
+            pauseButton.textContent = 'Resume';
+            pauseButton.title = 'Resume this paused API key';
+            pauseButton.style.backgroundColor = '#4caf50';
+            pauseButton.style.color = 'white';
+            pauseButton.onclick = () => resetApiKey(key.id); // Reset will unpause
+          } else {
+            pauseButton.textContent = 'Pause';
+            pauseButton.title = 'Temporarily pause this API key';
+            pauseButton.style.backgroundColor = '#2196f3';
+            pauseButton.style.color = 'white';
+            pauseButton.onclick = () => pauseApiKey(key.id);
+          }
+
           const deleteButton = document.createElement('button');
           deleteButton.textContent = 'Delete';
           deleteButton.onclick = () => deleteApiKey(key.id);
 
           buttonGroup.appendChild(editButton);
           buttonGroup.appendChild(resetButton);
+          buttonGroup.appendChild(pauseButton);
           buttonGroup.appendChild(deleteButton);
 
           li.appendChild(keyInfo);
@@ -303,6 +325,29 @@ document.addEventListener('DOMContentLoaded', () => {
     } else {
       const errorText = await response.text();
       alert(`Failed to reset API key: ${errorText}`);
+    }
+  }
+
+  async function pauseApiKey(id) {
+    if (!confirm('Are you sure you want to pause this API key? It will be temporarily disabled until you resume it.')) {
+      return;
+    }
+
+    const response = await fetch(`/api/user/key/pause`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiToken}`,
+      },
+      body: JSON.stringify({ id }),
+    });
+
+    if (response.ok) {
+      alert('API key has been paused successfully.');
+      loadApiKeys();
+    } else {
+      const errorText = await response.text();
+      alert(`Failed to pause API key: ${errorText}`);
     }
   }
 });

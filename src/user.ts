@@ -170,8 +170,36 @@ app.post('/user/key/reset', async (c) => {
 			return c.json({ error: 'API Key not found or you do not have permission' }, 404);
 		}
 
+		// Check if the key is paused - if so, just unpause it
+		const throttleData = keyToReset.throttleData as any;
+		if (throttleData && throttleData.paused) {
+			const unpaused = await db.unpauseApiKey(id);
+			return c.json(unpaused);
+		}
+
+		// Otherwise, do a full reset
 		const resetKey = await db.resetApiKeyStatus(id);
 		return c.json(resetKey);
+	} catch (e: any) {
+		return c.json({ error: e.message }, 500);
+	}
+});
+
+app.use('/user/key/pause', authMiddleware);
+app.post('/user/key/pause', async (c) => {
+	const db = c.get('db');
+	const user = c.get('user');
+
+	try {
+		const { id } = (await c.req.json()) as { id: number };
+		const keyToPause = await db.getApiKeyById(id);
+
+		if (!keyToPause || keyToPause.ownerId !== user.id) {
+			return c.json({ error: 'API Key not found or you do not have permission' }, 404);
+		}
+
+		const pausedKey = await db.pauseApiKey(id);
+		return c.json(pausedKey);
 	} catch (e: any) {
 		return c.json({ error: e.message }, 500);
 	}
