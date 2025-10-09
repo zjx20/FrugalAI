@@ -92,6 +92,22 @@ export class Database {
   }
 
   /**
+   * Resets an API key's throttling and error status, clearing all throttle data and permanent failure flags.
+   * This allows a previously throttled or permanently failed key to be used again.
+   * @param id The ID of the API key to reset.
+   * @returns A promise that resolves to the updated API key object.
+   */
+  async resetApiKeyStatus(id: number): Promise<ApiKey> {
+    return this.prisma.apiKey.update({
+      where: { id },
+      data: {
+        throttleData: Prisma.JsonNull,
+        permanentlyFailed: false,
+      },
+    });
+  }
+
+  /**
    * Retrieves all providers from the database.
    * @returns A promise that resolves to an array of all provider objects.
    */

@@ -173,11 +173,27 @@ document.addEventListener('DOMContentLoaded', () => {
           editButton.textContent = 'Edit';
           editButton.onclick = () => openEditModal(key);
 
+          const resetButton = document.createElement('button');
+          resetButton.textContent = 'Reset';
+          resetButton.title = 'Reset throttling and error status';
+          resetButton.onclick = () => resetApiKey(key.id);
+          // Only show reset button if the key has issues
+          if (key.permanentlyFailed || (key.throttleData && typeof key.throttleData === 'object' && Object.keys(key.throttleData).length > 0)) {
+            resetButton.style.backgroundColor = '#ff9800';
+            resetButton.style.color = 'white';
+          } else {
+            resetButton.style.backgroundColor = '#f0f0f0';
+            resetButton.style.color = '#999';
+            resetButton.disabled = true;
+            resetButton.title = 'No issues to reset';
+          }
+
           const deleteButton = document.createElement('button');
           deleteButton.textContent = 'Delete';
           deleteButton.onclick = () => deleteApiKey(key.id);
 
           buttonGroup.appendChild(editButton);
+          buttonGroup.appendChild(resetButton);
           buttonGroup.appendChild(deleteButton);
 
           li.appendChild(keyInfo);
@@ -266,4 +282,27 @@ document.addEventListener('DOMContentLoaded', () => {
       alert('Failed to update API key.');
     }
   });
+
+  async function resetApiKey(id) {
+    if (!confirm('Are you sure you want to reset the throttling and error status for this API key? This will clear all failure counts and throttling restrictions.')) {
+      return;
+    }
+
+    const response = await fetch(`/api/user/key/reset`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiToken}`,
+      },
+      body: JSON.stringify({ id }),
+    });
+
+    if (response.ok) {
+      alert('API key status has been reset successfully.');
+      loadApiKeys();
+    } else {
+      const errorText = await response.text();
+      alert(`Failed to reset API key: ${errorText}`);
+    }
+  }
 });

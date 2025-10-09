@@ -58,6 +58,7 @@ app.post('/user/register', async (c) => {
 
 app.use('/user/keys', authMiddleware);
 app.use('/user/key', authMiddleware);
+app.use('/user/key/reset', authMiddleware);
 app.use('/user/available-models', authMiddleware);
 
 app.get('/user/keys', (c) => {
@@ -152,6 +153,25 @@ app.put('/user/key', async (c) => {
 		});
 
 		return c.json(updatedKey);
+	} catch (e: any) {
+		return c.json({ error: e.message }, 500);
+	}
+});
+
+app.post('/user/key/reset', async (c) => {
+	const db = c.get('db');
+	const user = c.get('user');
+
+	try {
+		const { id } = (await c.req.json()) as { id: number };
+		const keyToReset = await db.getApiKeyById(id);
+
+		if (!keyToReset || keyToReset.ownerId !== user.id) {
+			return c.json({ error: 'API Key not found or you do not have permission' }, 404);
+		}
+
+		const resetKey = await db.resetApiKeyStatus(id);
+		return c.json(resetKey);
 	} catch (e: any) {
 		return c.json({ error: e.message }, 500);
 	}
