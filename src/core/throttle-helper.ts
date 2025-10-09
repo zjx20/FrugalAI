@@ -40,13 +40,13 @@ export class ApiKeyThrottleHelper implements ApiKeyFeedback {
 	 */
 	async *getAvailableKeys(): AsyncIterableIterator<ApiKeyWithProvider> {
 		const now = Date.now();
-
-		// Filter out candidate keys that are not permanently failed
-		const candidateKeys = this.keys.filter(key =>
+		const filteredKeys = this.keys.filter(key =>
 			(!this.keyFilter || this.keyFilter(key)) && !key.permanentlyFailed
 		);
 
-		for (const key of candidateKeys) {
+		const candidateKeys: {key: ApiKeyWithProvider, throttleData: ThrottleData | null}[] = [];
+
+		for (const key of filteredKeys) {
 			let currentThrottleData: ThrottleData | null = null;
 			let throttleDataMap: Record<string, ThrottleData> | null = null;
 
@@ -68,8 +68,21 @@ export class ApiKeyThrottleHelper implements ApiKeyFeedback {
 				continue; // Skip currently throttled key
 			}
 
-			// If the key is available, yield it
-			yield key;
+			candidateKeys.push({ key, throttleData: currentThrottleData });
+		}
+
+		// Sort candidateKeys: prioritize keys without failures, put keys with failures at the end
+		candidateKeys.sort((a, b) => {
+			const aFailures = a.throttleData?.consecutiveFailures || 0;
+			const bFailures = b.throttleData?.consecutiveFailures || 0;
+
+			// Sort by consecutive failures count (ascending)
+			// Keys with 0 failures will come first, then keys with more failures
+			return aFailures - bFailures;
+		});
+
+		for (const cand of candidateKeys) {
+			yield cand.key;
 		}
 	}
 
