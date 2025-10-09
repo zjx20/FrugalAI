@@ -24,6 +24,14 @@ document.addEventListener('DOMContentLoaded', () => {
   const createKeyButton = document.getElementById('create-key-button');
   const logoutButton = document.getElementById('logout-button');
 
+  const editModal = document.getElementById('edit-key-modal');
+  const editKeyIdInput = document.getElementById('edit-key-id');
+  const editKeyProvider = document.getElementById('edit-key-provider');
+  const editKeyDataInput = document.getElementById('edit-key-data-input');
+  const editKeyNotesInput = document.getElementById('edit-key-notes-input');
+  const saveKeyButton = document.getElementById('save-key-button');
+  const closeModalButton = editModal.querySelector('.close-button');
+
   let apiToken = localStorage.getItem('apiToken');
 
   if (apiToken) {
@@ -159,12 +167,21 @@ document.addEventListener('DOMContentLoaded', () => {
           const keyInfo = document.createElement('span');
           keyInfo.innerHTML = `${statusIndicator} <b>${key.providerName}</b> (ID: ${key.id})${notesText}`;
 
+          const buttonGroup = document.createElement('div');
+
+          const editButton = document.createElement('button');
+          editButton.textContent = 'Edit';
+          editButton.onclick = () => openEditModal(key);
+
           const deleteButton = document.createElement('button');
           deleteButton.textContent = 'Delete';
           deleteButton.onclick = () => deleteApiKey(key.id);
 
+          buttonGroup.appendChild(editButton);
+          buttonGroup.appendChild(deleteButton);
+
           li.appendChild(keyInfo);
-          li.appendChild(deleteButton);
+          li.appendChild(buttonGroup);
           apiKeysList.appendChild(li);
         });
       }
@@ -194,9 +211,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
   async function deleteApiKey(id) {
     if (!confirm('Are you sure you want to delete this API key?')) return;
-    const response = await fetch(`/api/user/keys/${id}`, {
+    const response = await fetch(`/api/user/key`, {
       method: 'DELETE',
-      headers: { 'Authorization': `Bearer ${apiToken}` },
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiToken}`
+      },
+      body: JSON.stringify({ id }),
     });
     if (response.status === 204) {
       loadApiKeys();
@@ -204,4 +225,45 @@ document.addEventListener('DOMContentLoaded', () => {
       alert('Failed to delete API key.');
     }
   }
+
+  function openEditModal(key) {
+    editKeyIdInput.value = key.id;
+    editKeyProvider.textContent = key.providerName;
+    editKeyDataInput.value = (key.keyData && key.keyData.key) ? key.keyData.key : '';
+    editKeyNotesInput.value = key.notes || '';
+    editModal.classList.remove('hidden');
+  }
+
+  function closeEditModal() {
+    editModal.classList.add('hidden');
+  }
+
+  closeModalButton.addEventListener('click', closeEditModal);
+  window.addEventListener('click', (event) => {
+    if (event.target == editModal) {
+      closeEditModal();
+    }
+  });
+
+  saveKeyButton.addEventListener('click', async () => {
+    const id = parseInt(editKeyIdInput.value, 10);
+    const keyData = { key: editKeyDataInput.value };
+    const notes = editKeyNotesInput.value;
+
+    const response = await fetch(`/api/user/key`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiToken}`,
+      },
+      body: JSON.stringify({ id, keyData, notes: notes || undefined }),
+    });
+
+    if (response.ok) {
+      closeEditModal();
+      loadApiKeys();
+    } else {
+      alert('Failed to update API key.');
+    }
+  });
 });

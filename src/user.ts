@@ -15,6 +15,18 @@ type Variables = {
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
+const authMiddleware = bearerAuth({
+	verifyToken: async (token, c) => {
+		const db = c.get('db');
+		const user = await db.findUserByToken(token);
+		if (user) {
+			c.set('user', user);
+			return true;
+		}
+		return false;
+	}
+});
+
 // A simple utility to generate random tokens
 function generateToken(length = 32) {
 	const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
@@ -44,29 +56,9 @@ app.post('/user/register', async (c) => {
 	}
 });
 
-app.use('/user/keys/*', bearerAuth({
-	verifyToken: async (token, c) => {
-		const db = c.get('db');
-		const user = await db.findUserByToken(token);
-		if (user) {
-			c.set('user', user);
-			return true;
-		}
-		return false;
-	}
-}));
-
-app.use('/user/available-models', bearerAuth({
-	verifyToken: async (token, c) => {
-		const db = c.get('db');
-		const user = await db.findUserByToken(token);
-		if (user) {
-			c.set('user', user);
-			return true;
-		}
-		return false;
-	}
-}));
+app.use('/user/keys', authMiddleware);
+app.use('/user/key', authMiddleware);
+app.use('/user/available-models', authMiddleware);
 
 app.get('/user/keys', (c) => {
 	const user = c.get('user');
@@ -125,18 +117,41 @@ app.post('/user/keys', async (c) => {
 	}
 });
 
-app.delete('/user/keys/:id', async (c) => {
+app.delete('/user/key', async (c) => {
 	const db = c.get('db');
 	const user = c.get('user');
-	const keyId = parseInt(c.req.param('id'), 10);
+	const { id } = (await c.req.json()) as { id: number };
 
 	try {
-		const keyToDelete = await db.getApiKeyById(keyId);
+		const keyToDelete = await db.getApiKeyById(id);
 		if (!keyToDelete || keyToDelete.ownerId !== user.id) {
 			return c.json({ error: 'API Key not found or you do not have permission' }, 404);
 		}
-		await db.deleteApiKey(keyId);
+		await db.deleteApiKey(id);
 		return new Response(null, { status: 204 });
+	} catch (e: any) {
+		return c.json({ error: e.message }, 500);
+	}
+});
+
+app.put('/user/key', async (c) => {
+	const db = c.get('db');
+	const user = c.get('user');
+
+	try {
+		const { id, keyData, notes } = (await c.req.json()) as { id: number; keyData?: any; notes?: string };
+		const keyToUpdate = await db.getApiKeyById(id);
+
+		if (!keyToUpdate || keyToUpdate.ownerId !== user.id) {
+			return c.json({ error: 'API Key not found or you do not have permission' }, 404);
+		}
+
+		const updatedKey = await db.updateApiKeyDetails(id, {
+			keyData: keyData || undefined,
+			notes: notes || undefined,
+		});
+
+		return c.json(updatedKey);
 	} catch (e: any) {
 		return c.json({ error: e.message }, 500);
 	}
