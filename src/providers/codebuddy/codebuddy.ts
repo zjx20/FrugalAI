@@ -25,7 +25,19 @@ class CodeBuddyHandler implements ProviderHandler {
 	}
 
 	canAccessModelWithKey(apiKey: ApiKeyWithProvider, model: string): boolean {
-		return true;
+		const codeBuddyModels = ["default-model"]; // International version
+		const copilotModels = ["default", "claude-4.0"];
+		if (!codeBuddyModels.includes(model) && !copilotModels.includes(model)) {
+			return true;
+		}
+		const { auth } = this.parseKeyData(apiKey.keyData);
+		if (codeBuddyModels.includes(model) && auth.domain === "www.codebuddy.ai") {
+			return true;
+		}
+		if (copilotModels.includes(model) && auth.domain === "copilot.tencent.com") {
+			return true;
+		}
+		return false;
 	}
 
 	private parseKeyData(keyData: any): { account: codeBuddyAccount, auth: codeBuddyAuthCredential } {
