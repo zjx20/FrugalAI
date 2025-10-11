@@ -1,7 +1,7 @@
 
 import { OAuth2Client } from "google-auth-library";
-import { ExecutionContext, Protocol, ProviderHandler, OpenAIRequest, GeminiRequest, AnthropicRequest, Credential, ThrottledError, ApiKeyWithProvider } from "../../core/types";
-import { convertChatCompletionCreateToGemini, convertGoogleResponseToOpenAi, GoogleToOpenAiSseTransformer } from "./openai-adapter";
+import { ExecutionContext, Protocol, ProviderHandler, OpenAIRequest, GeminiRequest, AnthropicRequest, Credential, ThrottledError, ApiKeyWithProvider, GeminiRequestBody } from "../../core/types";
+import { convertOpenAiRequestToGemini, convertGeminiResponseToOpenAi, GeminiToOpenAiSseTransformer } from "../../adapters/gemini-openai";
 
 const CODE_ASSIST_ENDPOINT = 'https://cloudcode-pa.googleapis.com';
 const CODE_ASSIST_API_VERSION = 'v1internal';
@@ -151,7 +151,7 @@ class GeminiCodeAssistHandler implements ProviderHandler {
 		return { keyDataUpdated, accessToken, projectId };
 	}
 
-	async sendRequestToGeminiCodeAssist(ctx: ExecutionContext, cred: Credential, model: string, requestBody: any, sse: boolean, method?: string): Promise<Response | Error> {
+	async sendRequestToGeminiCodeAssist(ctx: ExecutionContext, cred: Credential, model: string, requestBody: GeminiRequestBody, sse: boolean, method?: string): Promise<Response | Error> {
 		method = method ?? (sse ? 'streamGenerateContent' : 'generateContent');
 
 		const key = cred.apiKey;
@@ -228,7 +228,7 @@ class GeminiCodeAssistHandler implements ProviderHandler {
 				return new Response('Upstream response has no body', { status: 500 });
 			}
 			const unwrapStream = new TransformStream(new CodeAssistUnwrapTransformer());
-			const openAiTransformStream = new TransformStream(new GoogleToOpenAiSseTransformer(model, includeUsage));
+			const openAiTransformStream = new TransformStream(new GeminiToOpenAiSseTransformer(model, includeUsage));
 
 			const transformedBody = upstreamResponse.body
 				.pipeThrough(unwrapStream)
@@ -247,7 +247,7 @@ class GeminiCodeAssistHandler implements ProviderHandler {
 			if (respObj && typeof respObj === 'object' && respObj.response) {
 				respObj = respObj.response;
 			}
-			const openAIResponse = convertGoogleResponseToOpenAi(respObj, model);
+			const openAIResponse = convertGeminiResponseToOpenAi(respObj, model);
 			return new Response(JSON.stringify(openAIResponse), {
 				status: upstreamResponse.status,
 				statusText: upstreamResponse.statusText,
@@ -297,38 +297,14 @@ class GeminiCodeAssistHandler implements ProviderHandler {
 	}
 
 	async handleOpenAIRequest(ctx: ExecutionContext, request: OpenAIRequest, cred: Credential): Promise<Response | Error> {
-		const stream = request.stream ?? false;
-		const method = stream ? 'streamGenerateContent' : 'generateContent';
-		const geminiRequestParams = convertChatCompletionCreateToGemini(request);
-
-		const {
-			tools, toolConfig,
-			safetySettings,
-			systemInstruction,
-			cachedContent,
-			httpOptions: _httpOptions,  // Unused, just for dropping this field from generateConfig
-			abortSignal: _abortSignal,  // Unused, just for dropping this field from generateConfig
-			...generateConfig
-		} = geminiRequestParams.config || {};
-
-		const requestBody = {
-			contents: geminiRequestParams.contents,
-			tools: tools,
-			toolConfig: toolConfig,
-			safetySettings: safetySettings,
-			systemInstruction: systemInstruction,
-			generationConfig: generateConfig,
-			cachedContent: cachedContent,
-		};
-
-		const model = request.model;
-		const response = await this.sendRequestToGeminiCodeAssist(ctx, cred, model, requestBody, stream, method);
+		const geminiReq = convertOpenAiRequestToGemini(request);
+		const response = await this.sendRequestToGeminiCodeAssist(ctx, cred, geminiReq.model, geminiReq.request, geminiReq.sse, geminiReq.method);
 		if (response instanceof Error) {
 			return response;
 		}
 		if (response.ok) {
 			const includeUsage = request.stream_options?.include_usage ?? false;
-			return this.processUpstreamResponseOpenAI(response, model, stream, includeUsage);
+			return this.processUpstreamResponseOpenAI(response, geminiReq.model, geminiReq.sse, includeUsage);
 		}
 		return response;
 	}

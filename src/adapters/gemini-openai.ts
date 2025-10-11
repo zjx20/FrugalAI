@@ -10,12 +10,13 @@ import {
 	MediaModality,
 	Tool,
 } from '@google/genai';
+import { GeminiRequest, OpenAIRequest } from '../core/types';
 
 function defined(v: any): boolean {
 	return v !== undefined && v !== null;
 }
 
-export function convertChatCompletionCreateToGemini(
+function convertChatCompletionCreateToGemini(
 	req: ChatCompletionCreateParams,
 ): GenerateContentParameters {
 	const gReq: GenerateContentParameters = {
@@ -558,7 +559,7 @@ class OpenAiCompletionUsage {
  * Transforms a Google Gemini API response chunk (SSE) to an OpenAI-compatible
  * Chat Completion chunk.
  */
-export class GoogleToOpenAiSseTransformer implements Transformer<Uint8Array, Uint8Array> {
+export class GeminiToOpenAiSseTransformer implements Transformer<Uint8Array, Uint8Array> {
 	private buffer = '';
 	private readonly decoder = new TextDecoder();
 	private readonly encoder = new TextEncoder();
@@ -703,7 +704,7 @@ function convertCompletionChunk(streamId: string, model: string, googleChunk: Ge
  * Converts a full Google Gemini API response to an OpenAI-compatible
  * Chat Completion response.
  */
-export function convertGoogleResponseToOpenAi(googleResponse: GenerateContentResponse, model: string): ChatCompletion {
+export function convertGeminiResponseToOpenAi(googleResponse: GenerateContentResponse, model: string): ChatCompletion {
 	const openaiChunk = convertCompletionChunk('', model, googleResponse);
 	if (!openaiChunk) {
 		throw new Error(`Cannot convert Gemini API response to OpenAI format: ${JSON.stringify(googleResponse)}`);
@@ -766,4 +767,37 @@ function mapFinishReason(reason: FinishReason): ChatCompletionChunk.Choice['fini
 		default:
 			return 'content_filter';
 	}
+}
+
+export function convertOpenAiRequestToGemini(req: OpenAIRequest): GeminiRequest {
+	const stream = req.stream ?? false;
+	const method = stream ? 'streamGenerateContent' : 'generateContent';
+	const geminiRequestParams = convertChatCompletionCreateToGemini(req);
+
+	const {
+		tools, toolConfig,
+		safetySettings,
+		systemInstruction,
+		cachedContent,
+		httpOptions: _httpOptions,  // Unused, just for dropping this field from generationConfig
+		abortSignal: _abortSignal,  // Unused, just for dropping this field from generationConfig
+		...generationConfig
+	} = geminiRequestParams.config || {};
+
+	const requestBody = {
+		contents: geminiRequestParams.contents as Content[],
+		tools: tools as Tool[] | undefined,
+		toolConfig: toolConfig,
+		safetySettings: safetySettings,
+		systemInstruction: systemInstruction as Content | undefined,
+		generationConfig: generationConfig,
+		cachedContent: cachedContent,
+	};
+
+	return {
+		model: req.model,
+		method: method,
+		sse: stream,
+		request: requestBody,
+	};
 }

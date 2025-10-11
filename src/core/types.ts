@@ -23,19 +23,21 @@ type GeminiGenerationConfig = Omit<GenerateContentConfig,
 	'httpOptions' | 'abortSignal'
 >;
 
+export type GeminiRequestBody = {
+	contents: Content[],
+	tools?: Tool[],
+	toolConfig?: ToolConfig,
+	safetySettings?: SafetySetting[],
+	systemInstruction?: Content,
+	generationConfig?: GeminiGenerationConfig,
+	cachedContent?: string,
+};
+
 export type GeminiRequest = {
 	model: string,
 	method: string,
 	sse: boolean,
-	request: {
-		contents: Content[],
-		tools?: Tool[],
-		toolConfig?: ToolConfig,
-		safetySettings?: SafetySetting[],
-		systemInstruction?: Content,
-		generationConfig?: GeminiGenerationConfig,
-		cachedContent?: string,
-	}
+	request: GeminiRequestBody
 };
 
 // TODO: define AnthropicRequest

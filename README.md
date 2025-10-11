@@ -143,14 +143,28 @@ To obtain credentials for the `CODE_BUDDY` provider (macOS only):
 
 **Note:** The credential extraction method above is currently only available for macOS systems. Methods for other operating systems are to be determined.
 
+#### `GOOGLE_AI_STUDIO` Provider
+
+To obtain credentials for the `GOOGLE_AI_STUDIO` provider:
+
+1.  Visit https://aistudio.google.com/api-keys to access the Google AI Studio API Keys page
+2.  Sign in with your Google account if not already logged in
+3.  Click "Create API Key" to generate a new API key
+4.  Copy the generated API key (it will be a plain text string starting with "AIza...")
+5.  Use this **plain text API key** directly as your credential string for the `GOOGLE_AI_STUDIO` provider
+
+**Note:** Unlike other providers that require Base64 encoded credentials, the `GOOGLE_AI_STUDIO` provider uses the plain text API key directly.
+
 ### Step 3: Add Your Credentials as an API Key
 
 Now, add the credential(s) you just obtained to your user account via the web UI.
 
 1.  Go back to the user management page. If you are not already logged in, paste your **User Token** from Step 1 into the login field and click "Login".
 2.  In the "Create New API Key" section:
-    -   Select the appropriate provider from the dropdown (`GEMINI_CODE_ASSIST` or `CODE_BUDDY`).
-    -   Paste the **Base64 encoded credential string** from Step 2 into the "Enter your key from the provider" field.
+    -   Select the appropriate provider from the dropdown (`GEMINI_CODE_ASSIST`, `CODE_BUDDY`, or `GOOGLE_AI_STUDIO`).
+    -   Paste the credential string from Step 2 into the "Enter your key from the provider" field:
+        -   For `GEMINI_CODE_ASSIST` and `CODE_BUDDY`: Use the **Base64 encoded credential string**
+        -   For `GOOGLE_AI_STUDIO`: Use the **plain text API key** directly
     -   Optionally, add a note to remember which account this key corresponds to.
     -   Click "Create Key".
 

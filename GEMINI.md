@@ -29,7 +29,8 @@ The new workflow is entirely centered around the web UI and supports multiple pr
 2.  **Provider Credential Generation**: Users can obtain credentials for different providers:
     -   **`GEMINI_CODE_ASSIST`**: Run `node authorize.mjs` to handle the Google OAuth flow and output a Base64 encoded credential string.
     -   **`CODE_BUDDY`**: Install the CodeBuddy CLI tool from https://www.codebuddy.ai/cli, complete the login process, then extract the authentication key using: `cat "$HOME/Library/Application Support/CodeBuddyExtension/Data/Public/auth/Tencent-Cloud.coding-copilot.info" | base64` (macOS only; other systems TBD).
-3.  **API Key Creation**: The user logs into the web UI with their User Token, selects the appropriate provider (`GEMINI_CODE_ASSIST` or `CODE_BUDDY`), and pastes the Base64 string from the previous step into the "key" field to create a new `ApiKey` record in the database.
+    -   **`GOOGLE_AI_STUDIO`**: Visit https://aistudio.google.com/api-keys, sign in with a Google account, create an API key, and copy the plain text API key (starts with "AIza...").
+3.  **API Key Creation**: The user logs into the web UI with their User Token, selects the appropriate provider (`GEMINI_CODE_ASSIST`, `CODE_BUDDY`, or `GOOGLE_AI_STUDIO`), and pastes the credential string from the previous step into the "key" field to create a new `ApiKey` record in the database. Note that `GOOGLE_AI_STUDIO` uses plain text API keys directly, while other providers use Base64 encoded credential strings.
 
 ### 3.2. Provider-Specific Model Selection
 

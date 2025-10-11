@@ -40,6 +40,7 @@ enum ThrottleMode {
 enum ProviderName {
 	GEMINI_CODE_ASSIST
 	CODE_BUDDY
+	GOOGLE_AI_STUDIO
 }
 
 model Provider {
