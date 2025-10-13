@@ -97,6 +97,14 @@ Once your worker is deployed and the secrets are configured, you can access the 
 
 This project uses a self-service web UI to manage users and their API keys. A single user can manage multiple API keys from different providers, allowing the proxy to rotate through them to handle rate limits.
 
+### API Key Types
+
+The system supports two types of API keys:
+
+1. **User Tokens** (Full Access): These tokens (prefixed with `sk-`) provide full access to both the LLM API and account management features. They can create, edit, and delete API keys, as well as manage access tokens.
+
+2. **Access Tokens** (API-Only): These tokens (prefixed with `sk-api-`) can only call the LLM API and cannot access account management features. They are safer to share or use in applications where you don't want to grant full account access.
+
 The setup process involves three main steps:
 
 ## User Registration and API Key Setup
@@ -170,9 +178,21 @@ Now, add the credential(s) you just obtained to your user account via the web UI
 
 Your new key will appear in the list. Repeat this step for each credential you generated. The proxy will automatically use all available keys from the selected provider associated with your user account.
 
+### Step 4: (Optional) Create Access Tokens for Applications
+
+If you want to use the service in applications or share API access without granting full account management permissions, you can create Access Tokens:
+
+1. In the user management interface, scroll down to the "Access Tokens (API-only Keys)" section.
+2. Enter an optional name for the token (e.g., "My App Token").
+3. Click "Create Access Token".
+4. Copy the generated token (prefixed with `sk-api-`) immediately, as you won't be able to see it again.
+5. Use this Access Token in your applications instead of your User Token for safer API access.
+
+Access Tokens can be revoked at any time from the management interface without affecting your User Token or other Access Tokens.
+
 ## How to Use the Service
 
-Once you have registered and added at least one `GEMINI_CODE_ASSIST` key, you can use the service by providing your **User Token** (the one prefixed with `sk-`) as a Bearer token.
+Once you have registered and added at least one `GEMINI_CODE_ASSIST` key, you can use the service by providing either your **User Token** (prefixed with `sk-`) or an **Access Token** (prefixed with `sk-api-`) as a Bearer token.
 
 ### Provider-Specific Model Selection
 
@@ -194,7 +214,7 @@ You can use `curl` to call the API directly. The proxy exposes two compatible en
 
 ```bash
 curl -X POST "<your_endpoint_url>/v1/chat/completions" \
-     -H "Authorization: Bearer <YOUR_USER_TOKEN>" \
+     -H "Authorization: Bearer <YOUR_TOKEN>" \
      -H "Content-Type: application/json" \
      -d '{
            "model": "GEMINI_CODE_ASSIST/gemini-2.5-flash",
@@ -209,7 +229,7 @@ curl -X POST "<your_endpoint_url>/v1/chat/completions" \
 
 ```bash
 curl -X POST "<your_endpoint_url>/v1beta/models/GEMINI_CODE_ASSIST/gemini-2.5-flash:generateContent" \
-     -H "x-goog-api-key: <YOUR_USER_TOKEN>" \
+     -H "x-goog-api-key: <YOUR_TOKEN>" \
      -H "Content-Type: application/json" \
      -d '{
            "contents": [{
@@ -218,7 +238,7 @@ curl -X POST "<your_endpoint_url>/v1beta/models/GEMINI_CODE_ASSIST/gemini-2.5-fl
          }'
 ```
 
-Replace `<your_endpoint_url>` and `<YOUR_USER_TOKEN>` with your actual information.
+Replace `<your_endpoint_url>` and `<YOUR_TOKEN>` with your actual information. `<YOUR_TOKEN>` can be either your User Token (sk-...) or an Access Token (sk-api-...).
 
 ### 2. Use in Other Tools
 
@@ -226,9 +246,11 @@ The API provided by this proxy is compatible with the OpenAI Chat Completions AP
 
 To set this up, find the API settings in your tool of choice and configure the following:
 -   **API Endpoint / Base URL:** Your `<your_endpoint_url>`
--   **API Key:** Your **User Token** (the one prefixed with `sk-`)
+-   **API Key:** Your **User Token** (prefixed with `sk-`) or **Access Token** (prefixed with `sk-api-`)
 
 Once configured, the tool will communicate with this proxy, allowing you to use its features powered by Gemini at no cost.
+
+**Security Recommendation:** For applications and shared environments, use Access Tokens instead of User Tokens to limit access to API functionality only.
 
 ---
 

@@ -24,6 +24,11 @@ document.addEventListener('DOMContentLoaded', () => {
   const createKeyButton = document.getElementById('create-key-button');
   const logoutButton = document.getElementById('logout-button');
 
+  const accessTokensList = document.getElementById('access-tokens-list');
+  const noAccessTokensMessage = document.getElementById('no-access-tokens-message');
+  const accessTokenNameInput = document.getElementById('access-token-name-input');
+  const createAccessTokenButton = document.getElementById('create-access-token-button');
+
   const editModal = document.getElementById('edit-key-modal');
   const editKeyIdInput = document.getElementById('edit-key-id');
   const editKeyProvider = document.getElementById('edit-key-provider');
@@ -108,6 +113,7 @@ document.addEventListener('DOMContentLoaded', () => {
     apiKeyManagementSection.classList.remove('hidden');
     loadProviders();
     loadApiKeys();
+    loadAccessTokens();
   }
 
   async function loadProviders() {
@@ -350,4 +356,97 @@ document.addEventListener('DOMContentLoaded', () => {
       alert(`Failed to pause API key: ${errorText}`);
     }
   }
+
+  // Access Token management functions
+  async function loadAccessTokens() {
+    if (!apiToken) return;
+    const response = await fetch('/api/user/access-tokens', {
+      headers: { 'Authorization': `Bearer ${apiToken}` },
+    });
+    if (response.ok) {
+      const tokens = await response.json();
+      accessTokensList.innerHTML = '';
+      if (tokens.length === 0) {
+        noAccessTokensMessage.classList.remove('hidden');
+      } else {
+        noAccessTokensMessage.classList.add('hidden');
+        tokens.forEach(token => {
+          const li = document.createElement('li');
+
+          const tokenInfo = document.createElement('span');
+          const nameText = token.name ? ` - <i>${token.name}</i>` : '';
+          const createdDate = new Date(token.createdAt).toLocaleDateString();
+          tokenInfo.innerHTML = `🔑 <b>${token.token}</b>${nameText} <small>(Created: ${createdDate})</small>`;
+
+          const buttonGroup = document.createElement('div');
+
+          const copyButton = document.createElement('button');
+          copyButton.textContent = 'Copy';
+          copyButton.onclick = () => {
+            navigator.clipboard.writeText(token.token).then(() => {
+              alert('Token copied to clipboard!');
+            }).catch(() => {
+              // Fallback for older browsers
+              const textArea = document.createElement('textarea');
+              textArea.value = token.token;
+              document.body.appendChild(textArea);
+              textArea.select();
+              document.execCommand('copy');
+              document.body.removeChild(textArea);
+              alert('Token copied to clipboard!');
+            });
+          };
+
+          const revokeButton = document.createElement('button');
+          revokeButton.textContent = 'Revoke';
+          revokeButton.style.backgroundColor = '#f44336';
+          revokeButton.style.color = 'white';
+          revokeButton.onclick = () => revokeAccessToken(token.id);
+
+          buttonGroup.appendChild(copyButton);
+          buttonGroup.appendChild(revokeButton);
+
+          li.appendChild(tokenInfo);
+          li.appendChild(buttonGroup);
+          accessTokensList.appendChild(li);
+        });
+      }
+    }
+  }
+
+  async function revokeAccessToken(id) {
+    if (!confirm('Are you sure you want to revoke this access token? This action cannot be undone and any applications using this token will stop working.')) return;
+    const response = await fetch(`/api/user/access-token`, {
+      method: 'DELETE',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiToken}`
+      },
+      body: JSON.stringify({ id }),
+    });
+    if (response.status === 204) {
+      loadAccessTokens();
+    } else {
+      alert('Failed to revoke access token.');
+    }
+  }
+
+  createAccessTokenButton.addEventListener('click', async () => {
+    const name = accessTokenNameInput.value.trim();
+    const response = await fetch('/api/user/access-tokens', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiToken}`,
+      },
+      body: JSON.stringify({ name: name || undefined }),
+    });
+    if (response.status === 201) {
+      accessTokenNameInput.value = '';
+      loadAccessTokens();
+      alert('Access token created successfully! Make sure to copy it now as you won\'t be able to see it again.');
+    } else {
+      alert('Failed to create access token.');
+    }
+  });
 });

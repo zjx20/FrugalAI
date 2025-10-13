@@ -59,46 +59,15 @@ app.post('/user/register', async (c) => {
 app.use('/user/keys', authMiddleware);
 app.use('/user/key', authMiddleware);
 app.use('/user/key/reset', authMiddleware);
-app.use('/user/available-models', authMiddleware);
+app.use('/user/access-tokens', authMiddleware);
+app.use('/user/access-token', authMiddleware);
+
 
 app.get('/user/keys', (c) => {
 	const user = c.get('user');
 	return c.json(user.keys);
 });
 
-app.get('/user/available-models', (c) => {
-	const user = c.get('user');
-	const availableModels: { provider: string, models: string[] }[] = [];
-
-	// Group models by provider
-	const providerModelsMap = new Map<string, string[]>();
-
-	user.keys.forEach((key: any) => {
-		if (!key.permanentlyFailed && key.provider.models) {
-			const providerName = key.providerName;
-			const models = key.provider.models as string[];
-
-			if (!providerModelsMap.has(providerName)) {
-				providerModelsMap.set(providerName, []);
-			}
-
-			// Add models that aren't already in the list
-			models.forEach(model => {
-				const existingModels = providerModelsMap.get(providerName)!;
-				if (!existingModels.includes(model)) {
-					existingModels.push(model);
-				}
-			});
-		}
-	});
-
-	// Convert map to array format
-	providerModelsMap.forEach((models, provider) => {
-		availableModels.push({ provider, models });
-	});
-
-	return c.json(availableModels);
-});
 
 app.post('/user/keys', async (c) => {
 	const db = c.get('db');
@@ -200,6 +169,53 @@ app.post('/user/key/pause', async (c) => {
 
 		const pausedKey = await db.pauseApiKey(id);
 		return c.json(pausedKey);
+	} catch (e: any) {
+		return c.json({ error: e.message }, 500);
+	}
+});
+
+// Access Token management endpoints
+
+app.get('/user/access-tokens', async (c) => {
+	const db = c.get('db');
+	const user = c.get('user');
+	try {
+		const tokens = await db.getUserAccessTokens(user.id);
+		return c.json(tokens);
+	} catch (e: any) {
+		return c.json({ error: e.message }, 500);
+	}
+});
+
+app.post('/user/access-tokens', async (c) => {
+	const db = c.get('db');
+	const user = c.get('user');
+	try {
+		const { name } = (await c.req.json()) as { name?: string };
+		const token = `sk-api-${generateToken(48)}`;
+		const accessToken = await db.createAccessToken(token, user.id, name);
+		return c.json(accessToken, 201);
+	} catch (e: any) {
+		return c.json({ error: e.message }, 500);
+	}
+});
+
+app.delete('/user/access-token', async (c) => {
+	const db = c.get('db');
+	const user = c.get('user');
+	try {
+		const { id } = (await c.req.json()) as { id: number };
+
+		// Verify the token belongs to the user
+		const tokens = await db.getUserAccessTokens(user.id);
+		const tokenToRevoke = tokens.find(t => t.id === id);
+
+		if (!tokenToRevoke) {
+			return c.json({ error: 'Access token not found or you do not have permission' }, 404);
+		}
+
+		await db.revokeAccessToken(id);
+		return new Response(null, { status: 204 });
 	} catch (e: any) {
 		return c.json({ error: e.message }, 500);
 	}

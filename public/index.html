@@ -557,7 +557,7 @@
         // --- Dynamic Model Loading ---
         async function fetchAvailableModels(apiKey) {
             try {
-                const response = await fetch('/api/user/available-models', {
+                const response = await fetch('/available-models', {
                     method: 'GET',
                     headers: {
                         'Authorization': `Bearer ${apiKey}`

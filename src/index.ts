@@ -34,6 +34,7 @@ app.route('/api', userApp);
 app.route('/admin', adminApp);
 
 
+
 // --- Core Proxy Logic ---
 
 // Auth middleware for proxy endpoints
@@ -61,7 +62,18 @@ const proxyAuth = async (c: Context<{ Bindings: Env; Variables: AppVariables }>,
 	}
 
 	const db = c.get('db');
-	const user = await db.findUserByToken(token);
+	let user: UserWithKeys | null = null;
+
+	// Check if it's a new access token (starts with sk-api-)
+	if (token.startsWith('sk-api-')) {
+		const accessToken = await db.findAccessToken(token);
+		if (accessToken) {
+			user = await db.findUserById(accessToken.userId);
+		}
+	} else {
+		// Legacy user token (starts with sk-)
+		user = await db.findUserByToken(token);
+	}
 
 	if (!user) {
 		return c.json({ error: 'Unauthorized: Invalid API key.' }, 401);
@@ -73,6 +85,35 @@ const proxyAuth = async (c: Context<{ Bindings: Env; Variables: AppVariables }>,
 
 app.use('/v1/*', proxyAuth);
 app.use('/v1beta/*', proxyAuth);
+
+app.get('/available-models', proxyAuth, (c) => {
+	const user = c.get('user');
+
+	const providerModelsMap = new Map<string, Set<string>>();
+	for (const key of user.keys) {
+		if (key.permanentlyFailed || !key.provider.models) {
+			continue;
+		}
+
+		const providerName = key.providerName;
+		const models = Array.isArray(key.provider.models) ? (key.provider.models as string[]) : [];
+
+		if (!providerModelsMap.has(providerName)) {
+			providerModelsMap.set(providerName, new Set());
+		}
+
+		for (const model of models) {
+			providerModelsMap.get(providerName)!.add(model);
+		}
+	}
+
+	const availableModels = Array.from(providerModelsMap.entries()).map(([provider, models]) => ({
+		provider,
+		models: Array.from(models),
+	}));
+
+	return c.json(availableModels);
+});
 
 function extractModel(model: string): { provider?: string, model: string, alias?: string } {
 	var provider: string | undefined = undefined;

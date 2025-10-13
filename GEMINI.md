@@ -32,7 +32,39 @@ The new workflow is entirely centered around the web UI and supports multiple pr
     -   **`GOOGLE_AI_STUDIO`**: Visit https://aistudio.google.com/api-keys, sign in with a Google account, create an API key, and copy the plain text API key (starts with "AIza...").
 3.  **API Key Creation**: The user logs into the web UI with their User Token, selects the appropriate provider (`GEMINI_CODE_ASSIST`, `CODE_BUDDY`, or `GOOGLE_AI_STUDIO`), and pastes the credential string from the previous step into the "key" field to create a new `ApiKey` record in the database. Note that `GOOGLE_AI_STUDIO` uses plain text API keys directly, while other providers use Base64 encoded credential strings.
 
-### 3.2. Provider-Specific Model Selection
+### 3.2. Access Token System (API-only Keys)
+
+The project implements a dual-token system to separate API access from account management privileges:
+
+1.  **User Tokens (`sk-...`)**: Full-privilege tokens that allow both API calls and account management (creating/revoking API keys, managing Access Tokens).
+2.  **Access Tokens (`sk-api-...`)**: API-only tokens that can only be used for making requests to the `/v1/...` endpoints. They cannot perform account management operations.
+
+#### Access Token Management
+
+1.  **Creating Access Tokens**: Users with User Tokens can create Access Tokens through the web UI:
+    -   Navigate to `/user.html` and log in with a User Token
+    -   Use the "Access Tokens (API-only Keys)" section to create new tokens
+    -   Each Access Token has a custom name for identification
+2.  **Using Access Tokens**: Access Tokens work identically to User Tokens for API calls:
+    ```bash
+    curl -X POST "https://your-worker-url/v1/chat/completions" \
+      -H "Authorization: Bearer sk-api-your-access-token-here" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "model": "gemini-2.5-flash",
+        "messages": [{"role": "user", "content": "Hello!"}]
+      }'
+    ```
+3.  **Revoking Access Tokens**: Users can revoke individual Access Tokens through the web UI without affecting other tokens or API keys.
+
+#### Security Benefits
+
+-   **Organizational Use**: Organizations can maintain a pool of API keys while distributing Access Tokens to members
+-   **Limited Privileges**: Access Token holders cannot modify account settings or create/revoke API keys
+-   **Individual Revocation**: Each Access Token can be revoked independently for fine-grained access control
+-   **Audit Trail**: Access Tokens are named and timestamped for better tracking
+
+### 3.3. Provider-Specific Model Selection
 
 The system supports **provider-specific model selection** to enable precise control over which provider handles a request when multiple providers support the same model:
 
@@ -41,15 +73,23 @@ The system supports **provider-specific model selection** to enable precise cont
 3.  **Model Extraction**: The `extractModel()` function in `src/index.ts` parses the model string to separate the optional provider prefix from the model name
 4.  **Provider Filtering**: The `selectKeys()` function filters API keys based on both the model availability and the specified provider (if any)
 
-### 3.3. API Request Flow (Core Proxy)
+### 3.4. API Request Flow (Core Proxy)
 
-1.  A user makes a request to a `/v1/...` endpoint, providing their User Token in the `Authorization: Bearer <token>` header.
-2.  The `bearerAuth` middleware in `src/index.ts` validates the token and retrieves the user object, including all associated API keys, from the database.
+1.  A user makes a request to a `/v1/...` endpoint, providing either a User Token (`sk-...`) or Access Token (`sk-api-...`) in the `Authorization: Bearer <token>` header.
+2.  The `bearerAuth` middleware in `src/index.ts` validates the token:
+    -   For User Tokens: Retrieves the user object and associated API keys from the database
+    -   For Access Tokens: Validates the token and retrieves the associated user's API keys
 3.  The `extractModel()` function parses the requested model to separate the optional provider prefix from the model name.
 4.  The `selectKeys()` function filters for usable keys belonging to the appropriate provider (if specified) and supporting the requested model (i.e., not rate-limited or permanently failed).
 5.  The worker refreshes the `access_token` if necessary (for providers that require token refresh).
 6.  The worker forwards the request to the corresponding provider's API, handling fleet key rotation and rate-limiting logic.
 7.  The response is translated back to the standard Gemini API format and returned to the user.
+
+#### Token Authentication Details
+
+-   **User Tokens (`sk-...`)**: Can access all endpoints including management operations (`/api/user/*`)
+-   **Access Tokens (`sk-api-...`)**: Restricted to API endpoints (`/v1/*`) only, cannot access management operations
+-   **Token Validation**: Both token types are validated through the same authentication middleware but with different permission levels
 
 ## 4. Database Development Workflow (Prisma & D1)
 

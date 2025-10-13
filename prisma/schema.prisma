@@ -4,7 +4,7 @@
 generator client {
   provider        = "prisma-client-js"
   output          = "../src/generated/prisma"
-  previewFeatures = ["driverAdapters"]
+  // previewFeatures = ["driverAdapters"]
 }
 
 datasource db {
@@ -17,7 +17,18 @@ model User {
   token String  @unique
   name  String?
 
-  keys ApiKey[]
+  keys         ApiKey[]
+  accessTokens AccessToken[]
+}
+
+model AccessToken {
+  id        Int       @id @default(autoincrement())
+  token     String    @unique
+  type      TokenType
+  userId    Int
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name      String?
+  createdAt DateTime  @default(now())
 }
 
 model ApiKey {
@@ -35,6 +46,10 @@ model ApiKey {
 enum ThrottleMode {
   BY_MODEL
   BY_KEY
+}
+
+enum TokenType {
+  API
 }
 
 enum ProviderName {

@@ -1,4 +1,4 @@
-import { Prisma, PrismaClient, User, ApiKey, Provider, ProviderName, ThrottleMode } from '../generated/prisma';
+import { Prisma, PrismaClient, User, ApiKey, Provider, ProviderName, ThrottleMode, AccessToken, TokenType } from '../generated/prisma';
 
 /**
  * A data access class that provides methods for interacting with the database.
@@ -276,4 +276,80 @@ export class Database {
       },
     });
   }
+
+  // AccessToken related methods
+
+  /**
+   * Finds an access token by its token string.
+   * @param token The access token string.
+   * @returns A promise that resolves to the access token object, or null if not found.
+   */
+  async findAccessToken(token: string): Promise<AccessToken | null> {
+    if (!token) {
+      return null;
+    }
+    return this.prisma.accessToken.findUnique({
+      where: { token }
+    });
+  }
+
+  /**
+   * Finds a user by their ID and includes their API keys.
+   * @param id The user ID.
+   * @returns A promise that resolves to the user object with keys, or null if not found.
+   */
+  async findUserById(id: number): Promise<(User & { keys: (ApiKey & { provider: Provider })[] }) | null> {
+    return this.prisma.user.findUnique({
+      where: { id },
+      include: {
+        keys: {
+          include: {
+            provider: true,
+          },
+        },
+      },
+    });
+  }
+
+  /**
+   * Creates a new access token for a user.
+   * @param token The token string to use.
+   * @param userId The ID of the user who owns the token.
+   * @param name Optional name/description for the token.
+   * @returns A promise that resolves to the newly created access token object.
+   */
+  async createAccessToken(token: string, userId: number, name?: string): Promise<AccessToken> {
+    return this.prisma.accessToken.create({
+      data: {
+        token,
+        type: TokenType.API,
+        userId,
+        name
+      }
+    });
+  }
+
+  /**
+   * Revokes (deletes) an access token.
+   * @param id The ID of the access token to revoke.
+   * @returns A promise that resolves to the deleted access token object.
+   */
+  async revokeAccessToken(id: number): Promise<AccessToken> {
+    return this.prisma.accessToken.delete({
+      where: { id }
+    });
+  }
+
+  /**
+   * Gets all access tokens for a user.
+   * @param userId The ID of the user.
+   * @returns A promise that resolves to an array of access tokens.
+   */
+  async getUserAccessTokens(userId: number): Promise<AccessToken[]> {
+    return this.prisma.accessToken.findMany({
+      where: { userId },
+      orderBy: { createdAt: 'desc' }
+    });
+  }
+
 }
