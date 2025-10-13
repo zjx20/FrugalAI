@@ -459,6 +459,43 @@
             font-style: italic;
             text-align: center;
         }
+
+        #gemini-options-section .input-group {
+            align-items: center;
+        }
+
+        #gemini-options-section label {
+            margin-left: 5px;
+            user-select: none;
+            cursor: pointer;
+        }
+
+        .reasoning-content {
+            background-color: #f0f0f0;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            padding: 5px 10px;
+            margin-bottom: 10px;
+            font-family: monospace;
+            font-size: 0.85em;
+        }
+
+        .reasoning-content summary {
+            cursor: pointer;
+            font-weight: bold;
+            padding: 5px 0;
+            outline: none;
+        }
+
+        .reasoning-content[open] summary {
+            border-bottom: 1px solid #ccc;
+            margin-bottom: 5px;
+        }
+
+        .reasoning-text {
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
     </style>
 </head>
 <body>
@@ -492,6 +529,14 @@
                     <option value="gemini" selected>Gemini (Native)</option>
                     <option value="openai">OpenAI (Compatible)</option>
                 </select>
+            </div>
+
+            <div id="gemini-options-section" class="api-protocol-section" style="display: none;">
+                <h2>Gemini Options</h2>
+                <div class="input-group">
+                    <input type="checkbox" id="include-thoughts-checkbox">
+                    <label for="include-thoughts-checkbox">Include Thoughts</label>
+                </div>
             </div>
         </div>
 
@@ -533,6 +578,8 @@
         const imagePreviewContainer = document.getElementById('image-preview-container');
         const imagePreview = document.getElementById('image-preview');
         const removeImageButton = document.getElementById('remove-image-button');
+        const geminiOptionsSection = document.getElementById('gemini-options-section');
+        const includeThoughtsCheckbox = document.getElementById('include-thoughts-checkbox');
 
         let conversationHistory = []; // This will now store richer message objects
         let attachedImage = null; // To store the attached image data
@@ -739,8 +786,18 @@
         });
 
         apiProtocolSelect.addEventListener('change', () => {
-            localStorage.setItem('apiProtocol', apiProtocolSelect.value);
+            const selectedProtocol = apiProtocolSelect.value;
+            localStorage.setItem('apiProtocol', selectedProtocol);
+            toggleGeminiOptions(selectedProtocol);
         });
+
+        function toggleGeminiOptions(protocol) {
+            if (protocol === 'gemini') {
+                geminiOptionsSection.style.display = 'flex';
+            } else {
+                geminiOptionsSection.style.display = 'none';
+            }
+        }
 
         sendButton.addEventListener('click', sendMessage);
         chatInput.addEventListener('keydown', (e) => {
@@ -791,6 +848,7 @@
             }
 
             let botMessage = '';
+            let reasoningMessage = '';
             const contentDiv = botMessageElement.querySelector('.message-content');
             if (!contentDiv) return;
 
@@ -862,16 +920,47 @@
                             if (dataStr.trim() === '[DONE]') break;
                             try {
                                 const data = JSON.parse(dataStr);
-                                // Handle content chunks
-                                if (data.choices && data.choices.length > 0 && data.choices[0].delta && data.choices[0].delta.content) {
-                                    botMessage += data.choices[0].delta.content;
-                                    contentDiv.innerHTML = marked.parse(botMessage);
-                                    contentDiv.prepend(spinnerContainer);
-                                    hljs.highlightAll();
-                                    chatWindow.scrollTop = chatWindow.scrollHeight;
+                                const delta = data.choices && data.choices[0] && data.choices[0].delta;
+                                if (delta) {
+                                    let reasoningContainer = contentDiv.querySelector('.reasoning-content');
+
+                                    // Handle reasoning_content
+                                    if (delta.reasoning_content) {
+                                        if (!reasoningContainer) {
+                                            reasoningContainer = document.createElement('details');
+                                            reasoningContainer.className = 'reasoning-content';
+                                            reasoningContainer.open = true;
+                                            reasoningContainer.innerHTML = `<summary>Thoughts</summary><div class="reasoning-text"></div>`;
+                                            contentDiv.insertBefore(reasoningContainer, spinnerContainer.nextSibling);
+                                        }
+                                        const reasoningTextElement = reasoningContainer.querySelector('.reasoning-text');
+                                        reasoningMessage += delta.reasoning_content;
+                                        reasoningTextElement.innerHTML = marked.parse(reasoningMessage);
+                                        chatWindow.scrollTop = chatWindow.scrollHeight;
+                                    }
+
+                                    // Handle content
+                                    if (delta.content) {
+                                        // Collapse reasoning on first content chunk
+                                        if (botMessage === '' && reasoningContainer) {
+                                            reasoningContainer.open = false;
+                                        }
+                                        botMessage += delta.content;
+                                        // Create a separate div for the main content to avoid re-parsing reasoning
+                                        let mainContentDiv = contentDiv.querySelector('.main-content-text');
+                                        if (!mainContentDiv) {
+                                            mainContentDiv = document.createElement('div');
+                                            mainContentDiv.className = 'main-content-text';
+                                            contentDiv.appendChild(mainContentDiv);
+                                        }
+                                        mainContentDiv.innerHTML = marked.parse(botMessage);
+                                        contentDiv.prepend(spinnerContainer);
+                                        hljs.highlightAll();
+                                        chatWindow.scrollTop = chatWindow.scrollHeight;
+                                    }
                                 }
-                                // Handle usage chunk and ignore it for rendering
-                                else if (data.usage) {
+                                // Handle usage chunk
+                                if (data.usage) {
                                     console.log('Usage data received:', data.usage);
                                 }
                             } catch (e) {
@@ -880,7 +969,8 @@
                         }
                     }
                 }
-                updateHistoryAndRender(botMessage, selectedModel, isRetry);
+                // Pass both messages to the history update function
+                updateHistoryAndRender(botMessage, selectedModel, isRetry, reasoningMessage);
             } catch (error) {
                 hasError = true;
                 handleResponseError(error, selectedModel, isRetry, contentDiv, timerInterval);
@@ -903,6 +993,7 @@
             }
 
             let botMessage = '';
+            let reasoningMessage = '';
 
             // Create and append loading spinner and time display to the bot message content div
             const contentDiv = botMessageElement.querySelector('.message-content');
@@ -925,15 +1016,25 @@
             let hasError = false; // Flag to track if an error occurred
 
             try {
+                const requestBody = {
+                    contents: history
+                };
+
+                if (includeThoughtsCheckbox.checked) {
+                    requestBody.generationConfig = {
+                        thinkingConfig: {
+                            includeThoughts: true
+                        }
+                    };
+                }
+
                 const response = await fetch(`/v1beta/models/${selectedModel}:streamGenerateContent?alt=sse`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
                         'x-goog-api-key': apiKey
                     },
-                    body: JSON.stringify({
-                        contents: history
-                    })
+                    body: JSON.stringify(requestBody)
                 });
 
                 if (!response.ok) {
@@ -967,22 +1068,48 @@
                             }
                             try {
                                 const data = JSON.parse(dataStr);
-                                if (data.candidates && data.candidates[0].content.parts[0].text) {
-                                    const textPart = data.candidates[0].content.parts[0].text;
-                                    botMessage += textPart;
-                                    // Update contentDiv, not botMessageElement directly
-                                    contentDiv.innerHTML = marked.parse(botMessage); // Render Markdown
-                                    contentDiv.prepend(spinnerContainer); // Keep spinner at the top
-                                    hljs.highlightAll(); // Apply syntax highlighting
+                                const part = data.candidates && data.candidates[0] && data.candidates[0].content && data.candidates[0].content.parts[0];
+
+                                if (part && part.text) {
+                                    let reasoningContainer = contentDiv.querySelector('.reasoning-content');
+
+                                    if (part.thought) {
+                                        // Handle thinking content
+                                        if (!reasoningContainer) {
+                                            reasoningContainer = document.createElement('details');
+                                            reasoningContainer.className = 'reasoning-content';
+                                            reasoningContainer.open = true;
+                                            reasoningContainer.innerHTML = `<summary>Thoughts</summary><div class="reasoning-text"></div>`;
+                                            contentDiv.insertBefore(reasoningContainer, spinnerContainer.nextSibling);
+                                        }
+                                        const reasoningTextElement = reasoningContainer.querySelector('.reasoning-text');
+                                        reasoningMessage += part.text;
+                                        reasoningTextElement.innerHTML = marked.parse(reasoningMessage);
+                                    } else {
+                                        // Handle main content
+                                        if (botMessage === '' && reasoningContainer) {
+                                            reasoningContainer.open = false;
+                                        }
+                                        botMessage += part.text;
+                                        let mainContentDiv = contentDiv.querySelector('.main-content-text');
+                                        if (!mainContentDiv) {
+                                            mainContentDiv = document.createElement('div');
+                                            mainContentDiv.className = 'main-content-text';
+                                            contentDiv.appendChild(mainContentDiv);
+                                        }
+                                        mainContentDiv.innerHTML = marked.parse(botMessage);
+                                        contentDiv.prepend(spinnerContainer);
+                                        hljs.highlightAll();
+                                    }
                                     chatWindow.scrollTop = chatWindow.scrollHeight;
                                 }
                             } catch (e) {
-                                console.error('Error parsing stream data:', e);
+                                console.error('Error parsing stream data:', e, dataStr);
                             }
                         }
                     }
                 }
-                updateHistoryAndRender(botMessage, selectedModel, isRetry);
+                updateHistoryAndRender(botMessage, selectedModel, isRetry, reasoningMessage);
             } catch (error) {
                 hasError = true;
                 handleResponseError(error, selectedModel, isRetry, contentDiv, timerInterval);
@@ -1011,9 +1138,17 @@
             return spinnerContainer;
         }
 
-        function updateHistoryAndRender(botMessage, model, isRetry) {
+        function updateHistoryAndRender(botMessage, model, isRetry, reasoningMessage = '') {
+            const parts = [];
+            if (reasoningMessage) {
+                parts.push({ reasoning_content: reasoningMessage });
+            }
+            if (botMessage) {
+                parts.push({ text: botMessage });
+            }
+
             const successfulBotMessage = {
-                apiData: { role: 'model', parts: [{ text: botMessage }] },
+                apiData: { role: 'model', parts: parts },
                 metadata: { timestamp: new Date().toISOString(), model: model }
             };
 
@@ -1040,7 +1175,12 @@
 
             const errorMessage = error instanceof Error ? error.message : JSON.stringify(error);
             const errorText = `Error: ${errorMessage}`;
-            contentDiv.innerHTML = marked.parse(errorText);
+            // Clear previous content and show error
+            contentDiv.innerHTML = '';
+            const errorDiv = document.createElement('div');
+            errorDiv.innerHTML = marked.parse(errorText);
+            contentDiv.appendChild(errorDiv);
+
 
             const errorHistoryObject = {
                 apiData: { role: 'model', parts: [{ text: errorText }] },
@@ -1202,15 +1342,27 @@
 
                 const contentDiv = document.createElement('div');
                 contentDiv.className = 'message-content';
-                let messageText = '';
                 messageObject.apiData.parts.forEach(part => {
-                    if (part.text) {
-                        messageText += marked.parse(part.text);
+                    if (part.reasoning_content) {
+                        const reasoningContainer = document.createElement('details');
+                        reasoningContainer.className = 'reasoning-content';
+                        // Do not open by default when rendering from history
+                        reasoningContainer.innerHTML = `<summary>Thoughts</summary><div class="reasoning-text">${marked.parse(part.reasoning_content)}</div>`;
+                        contentDiv.appendChild(reasoningContainer);
+                    } else if (part.text) {
+                        const mainContentDiv = document.createElement('div');
+                        mainContentDiv.className = 'main-content-text';
+                        mainContentDiv.innerHTML = marked.parse(part.text);
+                        contentDiv.appendChild(mainContentDiv);
                     } else if (part.inlineData && part.inlineData.mimeType.startsWith('image/')) {
-                        messageText += `<img src="data:${part.inlineData.mimeType};base64,${part.inlineData.data}" style="max-width: 100px; max-height: 100px; border-radius: 5px;">`;
+                        const image = document.createElement('img');
+                        image.src = `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`;
+                        image.style.maxWidth = '100px';
+                        image.style.maxHeight = '100px';
+                        image.style.borderRadius = '5px';
+                        contentDiv.appendChild(image);
                     }
                 });
-                contentDiv.innerHTML = messageText;
                 messageElement.appendChild(contentDiv);
 
                 const timestampSpan = document.createElement('span');
@@ -1339,6 +1491,9 @@
 
         // Load chat history on page load
         loadChatHistory();
+
+        // Initial check for Gemini options visibility
+        toggleGeminiOptions(apiProtocolSelect.value);
 
         // --- Image Modal Logic ---
         const modal = document.getElementById("image-modal");

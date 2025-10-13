@@ -656,14 +656,16 @@ function convertCompletionChunk(streamId: string, model: string, googleChunk: Ge
 			continue;
 		}
 		let text: string | undefined = undefined;
+		let reasoning: string | undefined = undefined;
 		let toolCalls: ChatCompletionChunk.Choice.Delta.ToolCall[] | undefined = undefined;
 		for (const part of cand.content.parts) {
 			if (part.text) {
 				let partText = part.text || '';
 				if (part.thought) {
-					partText = `<thinking>${partText}</thinking>`;
+					reasoning = reasoning ? reasoning + partText : partText;
+				} else {
+					text = text ? text + partText : partText;
 				}
-				text = text ? text + partText : partText;
 			} else if (part.functionCall) {
 				if (toolCalls === undefined) {
 					toolCalls = [];
@@ -689,6 +691,10 @@ function convertCompletionChunk(streamId: string, model: string, googleChunk: Ge
 			finish_reason: cand.finishReason ? mapFinishReason(cand.finishReason) : null,
 			// logprobs: null,  // can't be mapped from cand.logprobsResult
 		};
+		if (reasoning) {
+			// Note: reasoning_content is a non-standard field.
+			(choice.delta as any).reasoning_content = reasoning;
+		}
 
 		openaiChunk.choices.push(choice);
 	}
