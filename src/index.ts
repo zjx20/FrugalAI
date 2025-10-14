@@ -131,9 +131,38 @@ function extractModel(model: string): { provider?: string, model: string, alias?
 	return { provider, model, alias };
 }
 
+function matchModel(reqModelId: string, reqAlias: string | undefined, model: string): {matched: boolean, modelId: string} {
+	const { model: modelId, alias } = extractModel(model);
+	if (reqModelId === modelId) {
+		// The alias name should be equal if it's specified
+		if (reqAlias) {
+			return {matched: reqAlias === alias, modelId: modelId};
+		}
+		// Match the modelId
+		return {matched: true, modelId: modelId};
+	}
+	if (alias) {
+		// Match the alias name
+		return {matched: reqModelId === alias, modelId: modelId};
+	}
+	return {matched: false, modelId: modelId};
+}
+
+function resolveModelId(reqModelId: string, reqAlias: string | undefined, key: ApiKeyWithProvider, handler: ProviderHandler): string | undefined {
+	const models = key.provider.models as string[] || [];
+	for (const model of models) {
+		const {matched, modelId} = matchModel(reqModelId, reqAlias, model);
+		if (matched) {
+			if (handler.canAccessModelWithKey(key, modelId)) {
+				return modelId;
+			}
+		}
+	}
+	return;
+}
+
 async function selectKeys(user: UserWithKeys, protocol: Protocol, model: string, alias?: string, provider?: string): Promise<ApiKeyWithProvider[]> {
 	const result = [];
-	const fullModelName = alias ? (model + '$' + alias) : model;
 	for (const key of user.keys) {
 		if (((key.throttleData || {}) as any).paused) {
 			continue; // Skip paused keys
@@ -148,10 +177,8 @@ async function selectKeys(user: UserWithKeys, protocol: Protocol, model: string,
 		if (!(handler.supportedProtocols() || []).includes(protocol)) {
 			continue;
 		}
-		if (!(key.provider.models as string[] || []).some(x => x === fullModelName || x.startsWith(model + '$'))) {
-			continue;
-		}
-		if (!handler.canAccessModelWithKey(key, model)) {
+		const modelId = resolveModelId(model, alias, key, handler);
+		if (!modelId) {
 			continue;
 		}
 		result.push(key);
@@ -162,29 +189,36 @@ async function selectKeys(user: UserWithKeys, protocol: Protocol, model: string,
 async function getApiKeysAndHandleRequest(
 	c: Context<{ Bindings: Env; Variables: AppVariables }>,
 	protocol: Protocol,
-	reqModel: string,
+	reqModels: string,
 	fn: (handler: ProviderHandler, adjustedModel: string, cred: Credential) => Promise<Response | Error>): Promise<Response> {
 
 	const user = c.get('user');
 	const db = c.get('db');
-	const { provider, model, alias } = extractModel(reqModel);
-	const keys = await selectKeys(user, protocol, model, alias, provider);
-	if (keys.length == 0) {
-		return c.json({ error: `No keys available for this model "${reqModel}"` }, 500);
-	}
 	const errors: Error[] = [];
-	const throttle = new ApiKeyThrottleHelper(keys, db, undefined, model);
-	for await (const key of throttle.getAvailableKeys()) {
-		const handler = providerHandlerMap.get(key.providerName);
-		if (!handler) {
+	for (const reqModel of reqModels.split(',')) {
+		const { provider, model: reqModelId, alias: reqAlias } = extractModel(reqModel);
+		const keys = await selectKeys(user, protocol, reqModelId, reqAlias, provider);
+		if (keys.length == 0) {
+			errors.push(new Error(`No keys available for model "${reqModel}"`));
 			continue;
 		}
-		const response = await fn(handler, model, { apiKey: key, feedback: throttle });
-		if (response instanceof Error) {
-			errors.push(response);
-			continue;
+		const throttle = new ApiKeyThrottleHelper(keys, db, undefined, reqModelId);
+		for await (const key of throttle.getAvailableKeys()) {
+			const handler = providerHandlerMap.get(key.providerName);
+			if (!handler) {
+				continue;
+			}
+			const modelId = resolveModelId(reqModelId, reqAlias, key, handler);
+			if (!modelId) {
+				continue;
+			}
+			const response = await fn(handler, modelId, { apiKey: key, feedback: throttle });
+			if (response instanceof Error) {
+				errors.push(response);
+				continue;
+			}
+			return response;
 		}
-		return response;
 	}
 	if (errors.length > 0) {
 		const throttled = errors.some(e => e instanceof ThrottledError);
@@ -198,27 +232,29 @@ async function getApiKeysAndHandleRequest(
 
 app.post('/v1/chat/completions', async (c) => {
 	const openAIRequestBody: OpenAIRequest = await c.req.json();
-	return getApiKeysAndHandleRequest(c, Protocol.OpenAI, openAIRequestBody.model, async (handler, adjustedModel, cred) => {
-		openAIRequestBody.model = adjustedModel;
+	return getApiKeysAndHandleRequest(c, Protocol.OpenAI, openAIRequestBody.model, async (handler, adjustedModelId, cred) => {
+		openAIRequestBody.model = adjustedModelId;
 		return handler.handleOpenAIRequest(c.executionCtx, openAIRequestBody, cred);
 	});
 });
 
-app.post('/v1beta/models/:modelAndMethod{([a-zA-Z0-9_-]+\\/)?[a-zA-Z0-9.-]+(\\$[a-zA-Z0-9.-]+)?:[a-zA-Z]+}', async (c) => {
+app.post('/v1beta/models/:modelAndMethod{(([a-zA-Z0-9_-]+\\/)?[a-zA-Z0-9.-]+(\\$[a-zA-Z0-9.-]+)?(,([a-zA-Z0-9_-]+\\/)?[a-zA-Z0-9.-]+(\\$[a-zA-Z0-9.-]+)?)*):[a-zA-Z]+}', async (c) => {
+	// model pattern: [provider/]model[$alias]
+	// modelAndMethod pattern: model1[,model2[,model3...]]:method
 	const modelAndMethod = c.req.param('modelAndMethod');
-	const [model, method] = modelAndMethod.split(':');
+	const [reqModels, method] = modelAndMethod.split(':');
 	const sse = c.req.query('alt') === 'sse';
 
 	const requestBody = await c.req.json();
 	const geminiRequest: GeminiRequest = {
-		model: model,
+		model: "", // placeholder
 		method: method,
 		sse: sse,
 		request: requestBody,
 	};
 
-	return getApiKeysAndHandleRequest(c, Protocol.Gemini, model, async (handler, adjustedModel, cred) => {
-		geminiRequest.model = adjustedModel;
+	return getApiKeysAndHandleRequest(c, Protocol.Gemini, reqModels, async (handler, adjustedModelId, cred) => {
+		geminiRequest.model = adjustedModelId;
 		return handler.handleGeminiRequest(c.executionCtx, geminiRequest, cred);
 	});
 });

@@ -79,17 +79,73 @@ The system supports **provider-specific model selection** to enable precise cont
 2.  The `bearerAuth` middleware in `src/index.ts` validates the token:
     -   For User Tokens: Retrieves the user object and associated API keys from the database
     -   For Access Tokens: Validates the token and retrieves the associated user's API keys
-3.  The `extractModel()` function parses the requested model to separate the optional provider prefix from the model name.
-4.  The `selectKeys()` function filters for usable keys belonging to the appropriate provider (if specified) and supporting the requested model (i.e., not rate-limited or permanently failed).
-5.  The worker refreshes the `access_token` if necessary (for providers that require token refresh).
-6.  The worker forwards the request to the corresponding provider's API, handling fleet key rotation and rate-limiting logic.
-7.  The response is translated back to the standard Gemini API format and returned to the user.
+3.  The `extractModel()` function parses the requested model to separate the optional provider prefix from the model name and alias.
+4.  **Multi-Model Fallback**: If the request specifies multiple models (comma-separated, e.g., `model1,model2,model3`), the system attempts them sequentially:
+    -   First, it tries `model1` with all available providers
+    -   If all providers fail or are rate-limited for `model1`, it moves to `model2`
+    -   This continues until a model succeeds or all models are exhausted
+5.  The `selectKeys()` function filters for usable keys belonging to the appropriate provider (if specified) and supporting the requested model (i.e., not rate-limited or permanently failed).
+6.  The worker refreshes the `access_token` if necessary (for providers that require token refresh).
+7.  The worker forwards the request to the corresponding provider's API, handling fleet key rotation and rate-limiting logic.
+8.  The response is translated back to the standard Gemini API format and returned to the user.
 
 #### Token Authentication Details
 
 -   **User Tokens (`sk-...`)**: Can access all endpoints including management operations (`/api/user/*`)
 -   **Access Tokens (`sk-api-...`)**: Restricted to API endpoints (`/v1/*`) only, cannot access management operations
 -   **Token Validation**: Both token types are validated through the same authentication middleware but with different permission levels
+
+### 3.5. Model Matching Logic
+
+The `matchModel()` function in `src/index.ts` implements flexible model matching to support various use cases:
+
+**Model Format:** `[provider/]model[$alias]`
+
+**Matching Algorithm:**
+
+1.  **Direct Model ID Match**: If the requested model ID matches the configured model ID exactly:
+    -   If the request includes an alias (e.g., `model1$alias1`), the alias must also match exactly
+    -   If the request has no alias (e.g., `model1`), it matches regardless of whether the configuration has an alias
+
+2.  **Alias Match**: If the configuration defines an alias (e.g., `model1$alias1`), the request can match by:
+    -   The base model name (`model1`)
+    -   The alias name (`alias1`)
+    -   The full format (`model1$alias1`)
+
+**Examples:**
+
+Given provider configuration: `gemini-2.5-flash$fast-model`
+
+| Request | Match? | Reason |
+|---------|--------|--------|
+| `gemini-2.5-flash` | ✓ | Model ID matches, alias not specified in request |
+| `fast-model` | ✓ | Alias name matches |
+| `gemini-2.5-flash$fast-model` | ✓ | Both model ID and alias match exactly |
+| `gemini-2.5-flash$other` | ✗ | Model ID matches but alias doesn't |
+| `other-model` | ✗ | Neither model ID nor alias matches |
+
+**Implementation Details:**
+
+```typescript
+function matchModel(reqModelId: string, reqAlias: string | undefined, model: string): {matched: boolean, modelId: string} {
+	const { model: modelId, alias } = extractModel(model);
+	if (reqModelId === modelId) {
+		// The alias name should be equal if it's specified
+		if (reqAlias) {
+			return {matched: reqAlias === alias, modelId: modelId};
+		}
+		// Match the modelId
+		return {matched: true, modelId: modelId};
+	}
+	if (alias) {
+		// Match the alias name
+		return {matched: reqModelId === alias, modelId: modelId};
+	}
+	return {matched: false, modelId: modelId};
+}
+```
+
+This flexible matching allows users to reference models in multiple ways while maintaining precise control when needed.
 
 ## 4. Database Development Workflow (Prisma & D1)
 

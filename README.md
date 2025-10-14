@@ -206,6 +206,54 @@ The service supports **provider-specific model selection** to give you precise c
    - Example: `gemini-2.5-flash`
    - The system will randomly select from available providers that support this model
 
+### Multi-Model Fallback Support
+
+FrugalAI supports specifying multiple fallback models in a single request to improve reliability and reduce rate-limiting errors. When multiple models are specified, the system attempts them sequentially until one succeeds.
+
+**Format:** `model1,model2,model3` (comma-separated, no spaces)
+
+**Examples:**
+- `gemini-2.5-pro,gemini-2.5-flash`
+- `GEMINI_CODE_ASSIST/gemini-2.5-pro,CODE_BUDDY/gemini-2.5-pro`
+
+**How it works:**
+1. FrugalAI first attempts to use `model1` with all available providers that support it
+2. If all providers fail or are rate-limited for `model1`, it automatically tries `model2`
+3. This continues sequentially until a model succeeds or all models are exhausted
+
+**Benefits:**
+- **Seamless fallback** when primary models are rate-limited (429 errors)
+- **Reduced interruptions** - similar models often have comparable capabilities, allowing transparent switching
+- **Better resource utilization** across your available API keys and models
+
+This feature is particularly useful when models have similar capabilities but different rate limits or availability across providers.
+
+### Model Matching Logic
+
+When you specify a model, FrugalAI uses the following matching logic to find compatible API keys:
+
+**Model Format:** `[provider/]model[$alias]`
+
+- **Provider prefix** (optional): Limits matching to a specific provider (e.g., `GEMINI_CODE_ASSIST/`)
+- **Model name** (required): The base model identifier (e.g., `gemini-2.5-flash`)
+- **Alias suffix** (optional): An alias name defined in provider configuration (e.g., `$my-alias`)
+
+**Matching Rules:**
+1. **Exact Model Match**: If you request `model1`, it matches any configured model with name `model1`, regardless of whether the configuration includes an alias
+2. **Alias Match**: If the provider configuration defines `model1$alias1`, you can request either:
+   - `model1` - matches by model name
+   - `alias1` - matches by alias name
+3. **Strict Alias Match**: If you explicitly request `model1$alias1`, it will only match configurations that define exactly `model1$alias1` (both model name and alias must match)
+
+**Example:**
+- Provider configuration: `gemini-2.5-flash$fast-model`
+- These requests all match:
+  - `gemini-2.5-flash` ✓
+  - `fast-model` ✓
+  - `gemini-2.5-flash$fast-model` ✓
+- This request does NOT match:
+  - `gemini-2.5-flash$other-alias` ✗
+
 ### 1. Test with `curl`
 
 You can use `curl` to call the API directly. The proxy exposes two compatible endpoints: one for the OpenAI API and one for the Google Gemini API.
