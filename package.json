@@ -10,13 +10,14 @@
 		"cf-typegen": "wrangler types"
 	},
 	"dependencies": {
-		"@google/genai": "^1.8.0",
+		"@anthropic-ai/sdk": "^0.65.0",
+		"@google/genai": "^1.24.0",
 		"@prisma/adapter-d1": "^6.16.2",
 		"@prisma/client": "^6.17.1",
 		"google-auth-library": "^9.11.0",
 		"hono": "^4.4.12",
 		"jose": "^5.9.6",
-		"openai": "^5.8.2"
+		"openai": "^6.3.0"
 	},
 	"devDependencies": {
 		"@cloudflare/vitest-pool-workers": "^0.8.19",

@@ -1,4 +1,5 @@
 import { AnthropicRequest, ApiKeyWithProvider, Credential, GeminiRequest, OpenAIRequest, Protocol, ProviderHandler, ThrottledError } from "../../core/types";
+import { convertAnthropicRequestToOpenAI, convertOpenAIResponseToAnthropic } from '../../adapters/anthropic-openai';
 import crypto from 'crypto';
 
 interface codeBuddyAccount {
@@ -21,7 +22,7 @@ const userAgent = `CLI/${codeBuddyVersion} CodeBuddy/${codeBuddyVersion}`;
 
 class CodeBuddyHandler implements ProviderHandler {
 	supportedProtocols(): Protocol[] {
-		return [Protocol.OpenAI];
+		return [Protocol.OpenAI, Protocol.Anthropic];
 	}
 
 	canAccessModelWithKey(apiKey: ApiKeyWithProvider, model: string): boolean {
@@ -212,7 +213,31 @@ class CodeBuddyHandler implements ProviderHandler {
 	}
 
 	async handleAnthropicRequest(ctx: ExecutionContext, request: AnthropicRequest, cred: Credential): Promise<Response | Error> {
-		return new Error("Method not implemented. Anthropic protocol is not supported.");
+		// Convert Anthropic request to OpenAI format
+		const openaiRequest = convertAnthropicRequestToOpenAI(request);
+
+		// console.log(`debug: original anthropic request: ${JSON.stringify(request, null, 2)}\n\n`);
+		// console.log(`debug: converted openai request: ${JSON.stringify(openaiRequest, null, 2)}\n\n`);
+
+		// Reuse the existing OpenAI request handler
+		const response = await this.handleOpenAIRequest(ctx, openaiRequest, cred);
+
+		// If an error occurred, return it directly
+		if (response instanceof Error) {
+			return response;
+		}
+
+		// If no success, return it directly
+		if (!response.ok) {
+			return response;
+		}
+
+		// Convert OpenAI response back to Anthropic format
+		return await convertOpenAIResponseToAnthropic(
+			request.stream || false,
+			response,
+			ctx
+		);
 	}
 }
 

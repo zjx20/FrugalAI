@@ -526,8 +526,9 @@
             <div class="api-protocol-section">
                 <h2>API Protocol</h2>
                 <select id="api-protocol-select">
-                    <option value="gemini" selected>Gemini (Native)</option>
-                    <option value="openai">OpenAI (Compatible)</option>
+                    <option value="gemini" selected>Gemini</option>
+                    <option value="openai">OpenAI</option>
+                    <option value="anthropic">Anthropic</option>
                 </select>
             </div>
 
@@ -1118,6 +1119,165 @@
             }
         }
 
+        async function processAnthropicResponse(history, botMessageElement, isRetry = false) {
+            const apiKey = apiKeyInput.value;
+            const selectedModel = modelSelect.value;
+
+            if (isRetry) {
+                const contentDiv = botMessageElement.querySelector('.message-content');
+                if (contentDiv) contentDiv.innerHTML = '';
+            }
+
+            let botMessage = '';
+            let thinkingMessage = '';
+            const contentDiv = botMessageElement.querySelector('.message-content');
+            if (!contentDiv) return;
+
+            const spinnerContainer = createSpinner();
+            contentDiv.appendChild(spinnerContainer);
+            const timeDisplay = spinnerContainer.querySelector('.time-display');
+
+            let startTime = Date.now();
+            let timerInterval = setInterval(() => {
+                timeDisplay.textContent = `${((Date.now() - startTime) / 1000).toFixed(1)}s`;
+            }, 100);
+
+            let hasError = false;
+
+            try {
+                // Convert Gemini format to Anthropic message format
+                const anthropicMessages = [];
+                for (const msg of history) {
+                    const role = msg.role === 'model' ? 'assistant' : 'user';
+                    const content = [];
+
+                    for (const part of msg.parts) {
+                        if (part.text) {
+                            content.push({ type: 'text', text: part.text });
+                        } else if (part.inlineData) {
+                            content.push({
+                                type: 'image',
+                                source: {
+                                    type: 'base64',
+                                    media_type: part.inlineData.mimeType,
+                                    data: part.inlineData.data
+                                }
+                            });
+                        }
+                    }
+
+                    anthropicMessages.push({ role, content });
+                }
+
+                const response = await fetch('/v1/messages', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'x-api-key': apiKey,
+                        'anthropic-version': '2023-06-01'
+                    },
+                    body: JSON.stringify({
+                        model: selectedModel,
+                        messages: anthropicMessages,
+                        max_tokens: 4096,
+                        stream: true
+                    })
+                });
+
+                if (!response.ok) {
+                    const contentType = response.headers.get('content-type');
+                    let errorBody;
+                    if (contentType && contentType.includes('application/json')) {
+                        errorBody = await response.json();
+                    } else {
+                        errorBody = await response.text();
+                    }
+                    const errorMessage = typeof errorBody === 'string' ? errorBody : (errorBody.error?.message || JSON.stringify(errorBody));
+                    throw new Error(errorMessage);
+                }
+
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                let buffer = '';
+
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+
+                    buffer += decoder.decode(value, { stream: true });
+                    const lines = buffer.split('\n');
+                    buffer = lines.pop() || ''; // Keep incomplete line in buffer
+
+                    for (const line of lines) {
+                        if (!line.trim() || !line.startsWith('event:') && !line.startsWith('data:')) continue;
+
+                        if (line.startsWith('event:')) {
+                            continue; // Event type line, process with next data line
+                        }
+
+                        if (line.startsWith('data:')) {
+                            const dataStr = line.substring(5).trim();
+                            try {
+                                const data = JSON.parse(dataStr);
+
+                                // Handle content_block_delta events
+                                if (data.type === 'content_block_delta') {
+                                    const delta = data.delta;
+                                    let reasoningContainer = contentDiv.querySelector('.reasoning-content');
+
+                                    // Handle thinking_delta (extended thinking)
+                                    if (delta.type === 'thinking_delta') {
+                                        if (!reasoningContainer) {
+                                            reasoningContainer = document.createElement('details');
+                                            reasoningContainer.className = 'reasoning-content';
+                                            reasoningContainer.open = true;
+                                            reasoningContainer.innerHTML = `<summary>Thinking</summary><div class="reasoning-text"></div>`;
+                                            contentDiv.insertBefore(reasoningContainer, spinnerContainer.nextSibling);
+                                        }
+                                        const reasoningTextElement = reasoningContainer.querySelector('.reasoning-text');
+                                        thinkingMessage += delta.thinking;
+                                        reasoningTextElement.textContent = thinkingMessage;
+                                        chatWindow.scrollTop = chatWindow.scrollHeight;
+                                    }
+                                    // Handle text_delta (main content)
+                                    else if (delta.type === 'text_delta') {
+                                        // Collapse thinking on first content chunk
+                                        if (botMessage === '' && reasoningContainer) {
+                                            reasoningContainer.open = false;
+                                        }
+                                        botMessage += delta.text;
+                                        let mainContentDiv = contentDiv.querySelector('.main-content-text');
+                                        if (!mainContentDiv) {
+                                            mainContentDiv = document.createElement('div');
+                                            mainContentDiv.className = 'main-content-text';
+                                            contentDiv.appendChild(mainContentDiv);
+                                        }
+                                        mainContentDiv.innerHTML = marked.parse(botMessage);
+                                        contentDiv.prepend(spinnerContainer);
+                                        hljs.highlightAll();
+                                        chatWindow.scrollTop = chatWindow.scrollHeight;
+                                    }
+                                }
+                                // Handle message_delta for usage info
+                                else if (data.type === 'message_delta' && data.usage) {
+                                    console.log('Usage data received:', data.usage);
+                                }
+                            } catch (e) {
+                                console.error('Error parsing Anthropic stream data:', e, dataStr);
+                            }
+                        }
+                    }
+                }
+
+                updateHistoryAndRender(botMessage, selectedModel, isRetry, thinkingMessage);
+            } catch (error) {
+                hasError = true;
+                handleResponseError(error, selectedModel, isRetry, contentDiv, timerInterval);
+            } finally {
+                cleanupAfterResponse(timerInterval, contentDiv, hasError, startTime);
+            }
+        }
+
         function createSpinner() {
             const spinnerContainer = document.createElement('span');
             spinnerContainer.className = 'loading-spinner-container';
@@ -1277,6 +1437,8 @@
 
             if (selectedProtocol === 'openai') {
                 await processOpenAIResponse(historyForApi, botMessageElement);
+            } else if (selectedProtocol === 'anthropic') {
+                await processAnthropicResponse(historyForApi, botMessageElement);
             } else {
                 await processGeminiResponse(historyForApi, botMessageElement);
             }
@@ -1403,6 +1565,8 @@
                         const selectedProtocol = localStorage.getItem('apiProtocol') || 'gemini';
                         if (selectedProtocol === 'openai') {
                             processOpenAIResponse(historyBeforeError, messageElement, true);
+                        } else if (selectedProtocol === 'anthropic') {
+                            processAnthropicResponse(historyBeforeError, messageElement, true);
                         } else {
                             processGeminiResponse(historyBeforeError, messageElement, true);
                         }

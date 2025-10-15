@@ -5,7 +5,7 @@ import { Database } from './core/db';
 import userApp from './user';
 import adminApp from './admin';
 import { ApiKeyThrottleHelper } from './core/throttle-helper';
-import { ApiKeyWithProvider, Credential, GeminiRequest, OpenAIRequest, Protocol, ProviderHandler, ThrottledError, UserWithKeys } from './core/types';
+import { AnthropicRequest, ApiKeyWithProvider, Credential, GeminiRequest, OpenAIRequest, Protocol, ProviderHandler, ThrottledError, UserWithKeys } from './core/types';
 import { providerHandlerMap } from './providers/providers';
 
 export interface Env {
@@ -15,6 +15,7 @@ export interface Env {
 type AppVariables = {
 	db: Database;
 	user: UserWithKeys;
+	parsedBody?: any;
 };
 
 const app = new Hono<{ Bindings: Env; Variables: AppVariables }>();
@@ -26,6 +27,28 @@ app.use('*', async (c, next) => {
 	c.set('db', new Database(prisma));
 	await next();
 });
+
+// JSON parsing middleware with error handling
+const jsonBodyParser = async (c: Context<{ Bindings: Env; Variables: AppVariables }>, next: Next) => {
+	if (c.req.method === 'POST' || c.req.method === 'PUT' || c.req.method === 'PATCH') {
+		const contentType = c.req.header('Content-Type');
+		if (contentType?.includes('application/json')) {
+			try {
+				const body = await c.req.json();
+				c.set('parsedBody', body);
+			} catch (error) {
+				const path = c.req.path;
+				console.error(`[JSON Parse Error] Invalid JSON at ${path}:`, error);
+				return c.json({
+					error: 'Invalid JSON in request body',
+					message: 'The request body contains malformed JSON',
+					path: path
+				}, 400);
+			}
+		}
+	}
+	await next();
+};
 
 // --- User Management API ---
 app.route('/api', userApp);
@@ -52,7 +75,12 @@ const proxyAuth = async (c: Context<{ Bindings: Env; Variables: AppVariables }>,
 		token = c.req.header('x-goog-api-key');
 	}
 
-	// 3. Check for key query parameter
+	// 3. Check for x-api-key
+	if (!token) {
+		token = c.req.header('x-api-key');
+	}
+
+	// 4. Check for key query parameter
 	if (!token) {
 		token = c.req.query('key');
 	}
@@ -83,8 +111,8 @@ const proxyAuth = async (c: Context<{ Bindings: Env; Variables: AppVariables }>,
 	await next();
 };
 
-app.use('/v1/*', proxyAuth);
-app.use('/v1beta/*', proxyAuth);
+app.use('/v1/*', jsonBodyParser, proxyAuth);
+app.use('/v1beta/*', jsonBodyParser, proxyAuth);
 
 app.get('/available-models', proxyAuth, (c) => {
 	const user = c.get('user');
@@ -231,7 +259,7 @@ async function getApiKeysAndHandleRequest(
 }
 
 app.post('/v1/chat/completions', async (c) => {
-	const openAIRequestBody: OpenAIRequest = await c.req.json();
+	const openAIRequestBody: OpenAIRequest = c.get('parsedBody');
 	return getApiKeysAndHandleRequest(c, Protocol.OpenAI, openAIRequestBody.model, async (handler, adjustedModelId, cred) => {
 		openAIRequestBody.model = adjustedModelId;
 		return handler.handleOpenAIRequest(c.executionCtx, openAIRequestBody, cred);
@@ -245,7 +273,7 @@ app.post('/v1beta/models/:modelAndMethod{(([a-zA-Z0-9_-]+\\/)?[a-zA-Z0-9.-]+(\\$
 	const [reqModels, method] = modelAndMethod.split(':');
 	const sse = c.req.query('alt') === 'sse';
 
-	const requestBody = await c.req.json();
+	const requestBody = c.get('parsedBody');
 	const geminiRequest: GeminiRequest = {
 		model: "", // placeholder
 		method: method,
@@ -256,6 +284,14 @@ app.post('/v1beta/models/:modelAndMethod{(([a-zA-Z0-9_-]+\\/)?[a-zA-Z0-9.-]+(\\$
 	return getApiKeysAndHandleRequest(c, Protocol.Gemini, reqModels, async (handler, adjustedModelId, cred) => {
 		geminiRequest.model = adjustedModelId;
 		return handler.handleGeminiRequest(c.executionCtx, geminiRequest, cred);
+	});
+});
+
+app.post('/v1/messages', async (c) => {
+	const anthropicRequest: AnthropicRequest = c.get('parsedBody');
+	return getApiKeysAndHandleRequest(c, Protocol.Anthropic, anthropicRequest.model, async (handler, adjustedModelId, cred) => {
+		anthropicRequest.model = adjustedModelId;
+		return handler.handleAnthropicRequest(c.executionCtx, anthropicRequest, cred);
 	});
 });
 

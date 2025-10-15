@@ -1,5 +1,5 @@
 import { ExecutionContext, Protocol, ProviderHandler, OpenAIRequest, GeminiRequest, AnthropicRequest, Credential, ThrottledError, ApiKeyWithProvider, GeminiRequestBody } from "../../core/types";
-import { convertOpenAiRequestToGemini, convertGeminiResponseToOpenAi, GeminiToOpenAiSseTransformer } from "../../adapters/gemini-openai";
+import { convertOpenAiRequestToGemini, convertGeminiResponseToOpenAi, GeminiToOpenAiSseTransformer } from "../../adapters/openai-gemini";
 
 const GOOGLE_AI_STUDIO_ENDPOINT = 'https://generativelanguage.googleapis.com';
 const GOOGLE_AI_STUDIO_API_VERSION = 'v1beta';

@@ -6,6 +6,7 @@ import {
 	Tool,
 	ToolConfig,
 } from '@google/genai';
+import { MessageCreateParams } from '@anthropic-ai/sdk/resources/messages';
 import { ApiKey, Provider, User } from '../generated/prisma';
 import { ApiKeyFeedback } from './throttle-helper';
 
@@ -40,8 +41,7 @@ export type GeminiRequest = {
 	request: GeminiRequestBody
 };
 
-// TODO: define AnthropicRequest
-export type AnthropicRequest = any;
+export type AnthropicRequest = MessageCreateParams;
 
 export enum Protocol {
 	OpenAI = 'openai',
