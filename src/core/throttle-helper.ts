@@ -49,6 +49,7 @@ export interface ApiKeyFeedback {
 		success: boolean,
 		isRateLimited: boolean,
 		lastError?: string,
+		resetTime?: number,
 	): void;
 
 	/**
@@ -105,10 +106,19 @@ function computeNextThrottleData(
 	minMs: number,
 	maxMs: number,
 	lastError?: string,
+	resetTime?: number,
 ): { newThrottleData: ThrottleData | null } {
 	const now = Date.now();
 	const currentBackoff = old?.currentBackoffDuration ?? minMs;
 	const consecutiveFailures = consecutiveFailuresBefore;
+
+	if (resetTime) {
+		if (resetTime > now) {
+			return { newThrottleData: { expiration: resetTime, currentBackoffDuration: currentBackoff, consecutiveFailures: 0, lastError: lastError } };
+		} else {
+			isRateLimited = false;
+		}
+	}
 
 	if (isRateLimited) {
 		const nextBackoff = old ? Math.min(currentBackoff * 2, maxMs) : minMs;
@@ -268,6 +278,7 @@ export class ApiKeyThrottleHelper implements ApiKeyFeedback {
 		success: boolean,
 		isRateLimited: boolean,
 		lastError?: string,
+		resetTime?: number,
 	): void {
 		const targetKey = getThrottleTargetKey(key.provider.throttleMode, model);
 
@@ -283,7 +294,8 @@ export class ApiKeyThrottleHelper implements ApiKeyFeedback {
 			consecutiveFailures,
 			minThrottle,
 			maxThrottle,
-			lastError
+			lastError,
+			resetTime,
 		);
 
 		const changed = throttleChanged(oldThrottleData, newThrottleData);

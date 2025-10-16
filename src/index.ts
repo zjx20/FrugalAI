@@ -269,8 +269,12 @@ async function getApiKeysAndHandleRequest(
 			for (const modelId of modelIds) {
 				const response = await fn(handler, modelId, { apiKey: key, feedback: throttle });
 				if (response instanceof Error) {
+					let resetTime: number | undefined;
+					if (response instanceof ThrottledError) {
+						resetTime = response.resetTime;
+					}
 					const isRateLimited = response instanceof ThrottledError;
-					throttle.recordModelStatus(key, modelId, false, isRateLimited, response.message); // Report failure for the model
+					throttle.recordModelStatus(key, modelId, false, isRateLimited, response.message, resetTime); // Report failure for the model
 					errors.push(response);
 					continue;
 				}

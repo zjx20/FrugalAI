@@ -157,6 +157,29 @@ class CodeBuddyHandler implements ProviderHandler {
 		});
 	}
 
+	private parseResetTime(errorMessage: string): number | null {
+		// Example of `errorMessage`:
+		//   Chat failed with error: 6005:usage exceeds frequency limit, but don't worry, your usage will reset at 2025-10-16 20:16:42 UTC+8, alternatively, you can switch to the other models to continue using it.
+
+		// "reset at 2025-10-16 20:16:42 UTC+8"
+		const match = errorMessage.match(
+			/reset at (\d+)-(\d+)-(\d+) (\d+):(\d+):(\d+) UTC([+-])(\d{1,2})/
+		);
+
+		if (!match) {
+			return null;
+		}
+
+		const [, year, month, day, hour, minute, second, sign, offset] = match;
+
+		// ISO 8601 pattern: "2025-10-16T20:16:42+08:00"
+		const isoDateString =
+			`${year}-${month}-${day}T${hour}:${minute}:${second}${sign}${offset.padStart(2, '0')}:00`;
+
+		const timestamp = Date.parse(isoDateString);
+		return isNaN(timestamp) ? null : timestamp;
+	}
+
 	async handleOpenAIRequest(ctx: ExecutionContext, request: OpenAIRequest, cred: Credential): Promise<Response | Error> {
 		var forceRefresh = false;
 		var retries = 0;
@@ -173,8 +196,9 @@ class CodeBuddyHandler implements ProviderHandler {
 
 				if (response.status === 429) {
 					const message = await response.text();
+					const resetTime = this.parseResetTime(message);
 					console.log(`ApiKey ${key.id} was rate-limited. Message: ${message}`);
-					return new ThrottledError(`ApiKey ${key.id} was rate-limited. Message: ${message}`);
+					return new ThrottledError(`ApiKey ${key.id} was rate-limited. Message: ${message}`, resetTime || undefined);
 				} else if (response.status === 401) {
 					console.log(`Provider ${key.providerName} returns 401 when using ApiKey ${key.id} (${key.notes}).`);
 					forceRefresh = true;
@@ -225,6 +249,9 @@ class CodeBuddyHandler implements ProviderHandler {
 				});
 			}
 		}
+
+		// HACK: CodeBuddy only supports streaming, so `stream` is forcibly set to true.
+		// request.stream = true;
 
 		// Convert Anthropic request to OpenAI format
 		const openaiRequest = convertAnthropicRequestToOpenAI(request);

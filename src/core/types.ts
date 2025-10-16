@@ -117,8 +117,10 @@ export type Credential = {
 };
 
 export class ThrottledError extends Error {
-	constructor(message: string) {
+	resetTime?: number;
+	constructor(message: string, resetTime?: number) {
 		super(message);
 		this.name = 'ThrottledError';
+		this.resetTime = resetTime;
 	}
 }
