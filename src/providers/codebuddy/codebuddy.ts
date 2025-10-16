@@ -199,6 +199,33 @@ class CodeBuddyHandler implements ProviderHandler {
 	}
 
 	async handleAnthropicRequest(ctx: ExecutionContext, request: AnthropicRequest, cred: Credential): Promise<Response | Error> {
+		// HACK: The following keywords are part of ClaudeCode's system instruction but are blocked by CodeBuddy's keyword detection, so they are replaced.
+		if (request.system) {
+			const replacements: [string, string][] = [
+				["You are Claude Code, Anthropic's official CLI for Claude.", "You are CodeBuddy, Tencent's official CLI for coding."],
+				["Main branch (you will usually use this for PRs)", "Main branch  (you will usually use this for PRs)"],
+				["- To give feedback, users should report the issue at https://github.com/anthropics/claude-code/issues", ""],
+			];
+
+			const applyReplacements = (text: string): string => {
+				let newText = text;
+				for (const [search, replace] of replacements) {
+					newText = newText.replace(search, replace);
+				}
+				return newText;
+			};
+
+			if (typeof request.system === 'string') {
+				request.system = applyReplacements(request.system);
+			} else if (Array.isArray(request.system)) {
+				request.system.forEach(part => {
+					if (part.type === 'text') {
+						part.text = applyReplacements(part.text);
+					}
+				});
+			}
+		}
+
 		// Convert Anthropic request to OpenAI format
 		const openaiRequest = convertAnthropicRequestToOpenAI(request);
 

@@ -48,6 +48,9 @@ const jsonBodyParser = async (c: Context<{ Bindings: Env; Variables: AppVariable
 		}
 	}
 	await next();
+	if (c.res.status === 400) {
+		console.error(`Upstream respond 400, path: ${c.req.path}, method: ${c.req.method}, body: ${JSON.stringify(c.get('parsedBody'))}`);
+	}
 };
 
 // --- User Management API ---
@@ -286,8 +289,10 @@ async function getApiKeysAndHandleRequest(
 	if (errors.length > 0) {
 		const throttled = errors.some(e => e instanceof ThrottledError);
 		if (throttled) {
+			console.error(`Error occurred or throttled, details: ${errors.map(e => e.message)}`);
 			return c.json({ error: 'ApiKeys were rate-limited', details: errors.map(e => e.message) }, 429);
 		}
+		console.error(`Error occurred, details: ${errors.map(e => e.message)}`);
 		return c.json({ error: 'Error occurred', details: errors.map(e => e.message) }, 500);
 	}
 	return c.json({ error: 'ApiKeys were rate-limited' }, 429);
