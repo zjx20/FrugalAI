@@ -246,14 +246,15 @@ async function getApiKeysAndHandleRequest(
 			const response = await fn(handler, modelId, { apiKey: key, feedback: throttle });
 			if (response instanceof Error) {
 				const isRateLimited = response instanceof ThrottledError;
-				throttle.recordModelStatus(key, modelId, false, isRateLimited); // Report failure for the model
+				throttle.recordModelStatus(key, modelId, false, isRateLimited, response.message); // Report failure for the model
 				errors.push(response);
 				continue;
 			}
 			if (!response.ok && response.status !== 400) {
 				// Ignore request error
-				throttle.recordModelStatus(key, modelId, false, false); // Report failure for the model
-				console.error(`Response is not ok, status: ${response.status} ${response.statusText}`);
+				const errMsg = `Response is not ok, status: ${response.status} ${response.statusText}`;
+				throttle.recordModelStatus(key, modelId, false, false, errMsg); // Report failure for the model
+				console.error(errMsg);
 			}
 			await throttle.commitPending(c.executionCtx);
 			return response;

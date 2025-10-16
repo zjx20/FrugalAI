@@ -158,6 +158,33 @@ document.addEventListener('DOMContentLoaded', () => {
     return statusHtml;
   }
 
+  // Helper: collect all lastError strings from throttleData buckets (including active and inactive)
+  // Note: "_global_" is a special bucket meaning the whole key is throttled/errored.
+  function getLastErrors(key) {
+    if (!key || !key.throttleData || typeof key.throttleData !== 'object') return [];
+    const entries = Object.entries(key.throttleData)
+      .filter(([bucket, v]) => v && typeof v === 'object' && 'expiration' in v && 'consecutiveFailures' in v);
+
+    const errors = [];
+    for (const [bucket, v] of entries) {
+      const err = v.lastError;
+      if (typeof err === 'string' && err.trim()) {
+        errors.push({ bucket, error: err });
+      }
+    }
+    return errors;
+  }
+
+  // Simple HTML escape to avoid injecting raw error strings into DOM
+  function escapeHtml(str) {
+    return String(str)
+      .replace(/&/g, '&')
+      .replace(/</g, '<')
+      .replace(/>/g, '>')
+      .replace(/"/g, '"')
+      .replace(/'/g, '&#39;');
+  }
+
   async function loadApiKeys() {
     if (!apiToken) return;
     const response = await fetch('/api/user/keys', {
@@ -176,7 +203,15 @@ document.addEventListener('DOMContentLoaded', () => {
           const notesText = key.notes ? ` - <i>${key.notes}</i>` : '';
 
           const keyInfo = document.createElement('span');
-          keyInfo.innerHTML = `${statusIndicator} <b>${key.providerName}</b> (ID: ${key.id})${notesText}`;
+          const lastErrors = getLastErrors(key);
+          const lastErrorsHtml = lastErrors.length
+            ? `<div style="margin-top:4px">${lastErrors.map(e => {
+                const label = e.bucket === '_global_' ? 'Global' : escapeHtml(e.bucket);
+                const title = e.bucket === '_global_' ? 'Global (key-level) throttling/error' : 'Model-specific throttling/error';
+                return `<small style="color:#d32f2f" title="${title}">[${label}] ${escapeHtml(e.error)}</small>`;
+              }).join('<br>')}</div>`
+            : '';
+          keyInfo.innerHTML = `${statusIndicator} <b>${key.providerName}</b> (ID: ${key.id})${notesText}${lastErrorsHtml}`;
 
           const buttonGroup = document.createElement('div');
 
