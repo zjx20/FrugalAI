@@ -176,17 +176,18 @@ function matchModel(reqModelId: string, reqAlias: string | undefined, model: str
 	return {matched: false, modelId: modelId};
 }
 
-function resolveModelId(reqModelId: string, reqAlias: string | undefined, key: ApiKeyWithProvider, handler: ProviderHandler): string | undefined {
+function resolveModelIds(reqModelId: string, reqAlias: string | undefined, key: ApiKeyWithProvider, handler: ProviderHandler): string[] {
 	const models = key.provider.models as string[] || [];
+	const result = [];
 	for (const model of models) {
 		const {matched, modelId} = matchModel(reqModelId, reqAlias, model);
 		if (matched) {
 			if (handler.canAccessModelWithKey(key, modelId)) {
-				return modelId;
+				result.push(modelId);
 			}
 		}
 	}
-	return;
+	return result;
 }
 
 async function selectKeys(user: UserWithKeys, protocol: Protocol, model: string, alias?: string, provider?: string): Promise<ApiKeyWithProvider[]> {
@@ -205,8 +206,8 @@ async function selectKeys(user: UserWithKeys, protocol: Protocol, model: string,
 		if (!(handler.supportedProtocols() || []).includes(protocol)) {
 			continue;
 		}
-		const modelId = resolveModelId(model, alias, key, handler);
-		if (!modelId) {
+		const modelIds = resolveModelIds(model, alias, key, handler);
+		if (modelIds.length === 0) {
 			continue;
 		}
 		result.push(key);
@@ -230,23 +231,34 @@ async function getApiKeysAndHandleRequest(
 			errors.push(new Error(`No keys available for model "${reqModel}"`));
 			continue;
 		}
-		const throttle = new ApiKeyThrottleHelper(keys, db, undefined, reqModelId);
-		for await (const key of throttle.getAvailableKeys()) {
+		const throttle = new ApiKeyThrottleHelper(keys, db, undefined);
+		for await (const key of throttle.getAvailableKeys(reqModel)) {
 			const handler = providerHandlerMap.get(key.providerName);
 			if (!handler) {
 				continue;
 			}
-			const modelId = resolveModelId(reqModelId, reqAlias, key, handler);
-			if (!modelId) {
+			const modelIds = resolveModelIds(reqModelId, reqAlias, key, handler);
+			if (modelIds.length === 0) {
 				continue;
 			}
+			// TODO: iterate modelIds
+			const modelId = modelIds[0];
 			const response = await fn(handler, modelId, { apiKey: key, feedback: throttle });
 			if (response instanceof Error) {
+				const isRateLimited = response instanceof ThrottledError;
+				throttle.recordModelStatus(key, modelId, false, isRateLimited); // Report failure for the model
 				errors.push(response);
 				continue;
 			}
+			if (!response.ok && response.status !== 400) {
+				// Ignore request error
+				throttle.recordModelStatus(key, modelId, false, false); // Report failure for the model
+				console.error(`Response is not ok, status: ${response.status} ${response.statusText}`);
+			}
+			await throttle.commitPending(c.executionCtx);
 			return response;
 		}
+		await throttle.commitPending(c.executionCtx);
 	}
 	if (errors.length > 0) {
 		const throttled = errors.some(e => e instanceof ThrottledError);

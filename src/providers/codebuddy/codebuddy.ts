@@ -85,11 +85,10 @@ class CodeBuddyHandler implements ProviderHandler {
 		});
 	}
 
-	async checkAndGetAccessToken(ctx: ExecutionContext, cred: Credential, forceRefresh: boolean): Promise<{ keyDataUpdated: boolean, accessToken: string, domain: string, user: string } | Error> {
+	async checkAndGetAccessToken(cred: Credential, forceRefresh: boolean): Promise<{ accessToken: string, domain: string, user: string } | Error> {
 		const key = cred.apiKey;
 		const { account, auth } = this.parseKeyData(key.keyData);
 		let accessToken = auth.accessToken;
-		let keyDataUpdated = false;
 		const sevenDays = 7 * 24 * 60 * 60 * 1000;
 		if (forceRefresh || Date.now() > auth.expiresAt - sevenDays) {
 			try {
@@ -104,21 +103,20 @@ class CodeBuddyHandler implements ProviderHandler {
 					newAuth.domain = auth.domain;
 					key.keyData = { account: account, auth: newAuth } as any;
 					accessToken = newAuth.accessToken;
-					keyDataUpdated = true;
+					cred.feedback.recordKeyDataUpdated(key); // Report key data updated
 				} else if (resp.status === 401) {
 					console.error(`Permanent failure for ApiKey ${key.id}, message: ${await resp.text()}`);
-					await cred.feedback.reportApiKeyStatus(key, false, false, false, true, ctx); // Report permanent failure
+					cred.feedback.recordApiKeyPermanentlyFailed(key); // Report permanent failure
 					return new Error(`ApiKey ${key.id} is permanently failed.`);
 				} else {
 					throw new Error(`Unknown error, status: ${resp.status}, message: ${await resp.text()}`);
 				}
 			} catch (e: any) {
 				console.error(`Error refreshing token for ApiKey ${key.id}:`, e);
-				await cred.feedback.reportApiKeyStatus(key, false, true, false, false, ctx); // Report temporary failure
 				return new Error(`Error refreshing token for ApiKey ${key.id}: ${e.message}`);
 			}
 		}
-		return { keyDataUpdated: keyDataUpdated, accessToken: accessToken, domain: auth.domain, user: account.uid };
+		return { accessToken: accessToken, domain: auth.domain, user: account.uid };
 	}
 
 	async forwardRequest(accessToken: string, domain: string, user: string, requestBody: any): Promise<Response> {
@@ -164,20 +162,16 @@ class CodeBuddyHandler implements ProviderHandler {
 		var retries = 0;
 		while (true) {
 			const key = cred.apiKey;
-			const checkResult = await this.checkAndGetAccessToken(ctx, cred, forceRefresh);
+			const checkResult = await this.checkAndGetAccessToken(cred, forceRefresh);
 			if (checkResult instanceof Error) {
 				return checkResult;
 			}
-			const { keyDataUpdated, accessToken, domain, user } = checkResult;
-
-			let isRateLimited = false;
-			let success = false;
+			const { accessToken, domain, user } = checkResult;
 
 			try {
 				const response = await this.forwardRequest(accessToken, domain, user, request);
 
 				if (response.status === 429) {
-					isRateLimited = true;
 					const message = await response.text();
 					console.log(`ApiKey ${key.id} was rate-limited. Message: ${message}`);
 					return new ThrottledError(`ApiKey ${key.id} was rate-limited. Message: ${message}`);
@@ -190,20 +184,12 @@ class CodeBuddyHandler implements ProviderHandler {
 					} else {
 						return response;
 					}
-				} else if (response.ok) {
-					success = true;
-				} else {
-					console.log(`Response is not ok, status: ${response.status} ${response.statusText}`);
 				}
+
 				return response;
 			} catch (e: any) {
 				console.error('Error during forwardRequest:', e);
-				// Assume all forwardRequest errors are not rate limits, but other failures
-				success = false;
 				return new Error(`Error during forwardRequest: ${e.message}`);
-			} finally {
-				// Report API call result to throttleHelper
-				await cred.feedback.reportApiKeyStatus(key, success, isRateLimited, keyDataUpdated, false, ctx);
 			}
 		}
 	}

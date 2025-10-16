@@ -45,35 +45,23 @@ class GoogleAIStudioHandler implements ProviderHandler {
 			apiKey = this.parseKeyData(key.keyData);
 		} catch (e: any) {
 			console.error(`Error parsing API key for ApiKey ${key.id}:`, e.message);
-			await cred.feedback.reportApiKeyStatus(key, false, false, false, true, ctx); // Report permanent failure
+			cred.feedback.recordApiKeyPermanentlyFailed(key); // Report permanent failure
 			return new Error(`ApiKey ${key.id} has invalid format: ${e.message}`);
 		}
-
-		let isRateLimited = false;
-		let success = false;
 
 		try {
 			const response = await this.forwardRequest(apiKey, model, method, requestBody, sse);
 
 			if (response.status === 429) {
-				isRateLimited = true;
 				const message = await response.text();
 				console.log(`ApiKey ${key.id} was rate-limited. Message: ${message}`);
 				return new ThrottledError(`ApiKey ${key.id} was rate-limited. Message: ${message}`);
-			} else if (response.ok) {
-				success = true;
-			} else {
-				console.log(`Response is not ok, status: ${response.status} ${response.statusText}`);
 			}
+
 			return response;
 		} catch (e: any) {
 			console.error('Error during forwardRequest:', e);
-			// Assume all forwardRequest errors are not rate limits, but other failures
-			success = false;
 			return new Error(`Error during forwardRequest: ${e.message}`);
-		} finally {
-			// Report API call result to throttleHelper
-			await cred.feedback.reportApiKeyStatus(key, success, isRateLimited, false, false, ctx);
 		}
 	}
 

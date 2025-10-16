@@ -71,7 +71,7 @@ export class Database {
    * @param data The data to update.
    * @returns A promise that resolves to the updated API key object.
    */
-  async updateApiKey(id: number, data: { keyData?: Prisma.InputJsonValue; permanentlyFailed?: boolean }): Promise<ApiKey> {
+  async updateApiKey(id: number, data: { keyData?: Prisma.InputJsonValue; permanentlyFailed?: boolean; throttleData?: Prisma.InputJsonValue }): Promise<ApiKey> {
     return this.prisma.apiKey.update({
       where: { id },
       data,

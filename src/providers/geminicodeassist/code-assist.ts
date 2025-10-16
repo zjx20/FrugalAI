@@ -107,7 +107,7 @@ class GeminiCodeAssistHandler implements ProviderHandler {
 		throw new Error('Unsupported keyData format.');
 	}
 
-	async checkAndGetAccessToken(ctx: ExecutionContext, cred: Credential): Promise<{ keyDataUpdated: boolean, accessToken: string; projectId: string } | Error> {
+	async checkAndGetAccessToken(cred: Credential): Promise<{ accessToken: string; projectId: string } | Error> {
 		const key = cred.apiKey;
 		// Extract tokens and projectId from keyData
 		const { tokens, projectId } = this.parseKeyData(key.keyData);
@@ -123,14 +123,12 @@ class GeminiCodeAssistHandler implements ProviderHandler {
 		} catch (e: any) {
 			if (e.response?.data?.error === 'invalid_grant') {
 				console.error(`Permanent failure for ApiKey ${key.id} (invalid_grant): ${e.message}`);
-				await cred.feedback.reportApiKeyStatus(key, false, false, false, true, ctx); // Report permanent failure
+				cred.feedback.recordApiKeyPermanentlyFailed(key); // Report permanent failure
 				return new Error(`ApiKey ${key.id} is permanently failed.`);
 			}
 			console.error(`Error refreshing token for ApiKey ${key.id}:`, e);
-			await cred.feedback.reportApiKeyStatus(key, false, true, false, false, ctx); // Report temporary failure
 			return new Error(`Error refreshing token for ApiKey ${key.id}: ${e.message}`);
 		}
-		let keyDataUpdated = false;
 		const refreshedCredentials = client.credentials;
 		if (refreshedCredentials.access_token !== tokens.access_token) {
 			// Update keyData with refreshed tokens
@@ -145,24 +143,23 @@ class GeminiCodeAssistHandler implements ProviderHandler {
 				},
 				projectId,
 			};
-			keyDataUpdated = true;
 			accessToken = refreshedCredentials.access_token;
+			cred.feedback.recordKeyDataUpdated(key); // Report key data updated
 		}
-		return { keyDataUpdated, accessToken, projectId };
+		return { accessToken, projectId };
 	}
 
-	async sendRequestToGeminiCodeAssist(ctx: ExecutionContext, cred: Credential, model: string, requestBody: GeminiRequestBody, sse: boolean, method?: string): Promise<Response | Error> {
+	async sendRequestToGeminiCodeAssist(cred: Credential, model: string, requestBody: GeminiRequestBody, sse: boolean, method?: string): Promise<Response | Error> {
 		method = method ?? (sse ? 'streamGenerateContent' : 'generateContent');
 
 		const key = cred.apiKey;
-		const checkResult = await this.checkAndGetAccessToken(ctx, cred);
+		const checkResult = await this.checkAndGetAccessToken(cred);
 		if (checkResult instanceof Error) {
 			return checkResult;
 		}
-		const { keyDataUpdated, accessToken, projectId } = checkResult;
+		const { accessToken, projectId } = checkResult;
 
 		let isRateLimited = false;
-		let success = false;
 
 		try {
 			const response = await this.forwardRequest(accessToken, projectId, model, method, requestBody, sse);
@@ -172,20 +169,12 @@ class GeminiCodeAssistHandler implements ProviderHandler {
 				const message = await response.text();
 				console.log(`ApiKey ${key.id} was rate-limited. Message: ${message}`);
 				return new ThrottledError(`ApiKey ${key.id} was rate-limited. Message: ${message}`);
-			} else if (response.ok) {
-				success = true;
-			} else {
-				console.log(`Response is not ok, status: ${response.status} ${response.statusText}`);
 			}
+
 			return response;
 		} catch (e: any) {
 			console.error('Error during forwardRequest:', e);
-			// Assume all forwardRequest errors are not rate limits, but other failures
-			success = false;
 			return new Error(`Error during forwardRequest: ${e.message}`);
-		} finally {
-			// Report API call result to throttleHelper
-			await cred.feedback.reportApiKeyStatus(key, success, isRateLimited, keyDataUpdated, false, ctx);
 		}
 	}
 
@@ -298,7 +287,7 @@ class GeminiCodeAssistHandler implements ProviderHandler {
 
 	async handleOpenAIRequest(ctx: ExecutionContext, request: OpenAIRequest, cred: Credential): Promise<Response | Error> {
 		const geminiReq = convertOpenAiRequestToGemini(request);
-		const response = await this.sendRequestToGeminiCodeAssist(ctx, cred, geminiReq.model, geminiReq.request, geminiReq.sse, geminiReq.method);
+		const response = await this.sendRequestToGeminiCodeAssist(cred, geminiReq.model, geminiReq.request, geminiReq.sse, geminiReq.method);
 		if (response instanceof Error) {
 			return response;
 		}
@@ -310,7 +299,7 @@ class GeminiCodeAssistHandler implements ProviderHandler {
 	}
 
 	async handleGeminiRequest(ctx: ExecutionContext, request: GeminiRequest, cred: Credential): Promise<Response | Error> {
-		const response = await this.sendRequestToGeminiCodeAssist(ctx, cred, request.model, request.request, request.sse, request.method);
+		const response = await this.sendRequestToGeminiCodeAssist(cred, request.model, request.request, request.sse, request.method);
 		if (response instanceof Error) {
 			return response;
 		}

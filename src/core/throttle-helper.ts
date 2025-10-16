@@ -5,79 +5,250 @@ import { ApiKeyWithProvider, ExecutionContext } from './types';
 const MAX_CONSECUTIVE_FAILURES = 5;
 
 /**
- * Interface for throttle data stored per model or globally for an API key.
+ * ThrottleData captures per-bucket throttling state:
+ * - expiration: timestamp when throttling ends (ms since epoch). 0 means not throttled.
+ * - currentBackoffDuration: the last applied exponential backoff duration in ms.
+ * - consecutiveFailures: non-429 failure count used to trigger throttling when reaching the threshold.
  */
 export interface ThrottleData {
-	expiration: number; // Timestamp when throttling expires
-	currentBackoffDuration: number; // Current exponential backoff duration
-	consecutiveFailures: number; // Count of consecutive non-rate-limited failures
+	expiration: number;
+	currentBackoffDuration: number;
+	consecutiveFailures: number;
 }
 
 /**
- * Interface for reporting API key status.
+ * ApiKeyFeedback defines the mutation API for reporting call outcomes and batching persistence.
+ *
+ * Design:
+ * - recordKeyDataUpdated: buffer that caller-updated key.keyData should be persisted (no DB write yet).
+ * - recordApiKeyPermanentlyFailed: mark the key as permanently failed (sticky flag, no DB write yet).
+ * - recordModelStatus: buffer model/global throttle changes in memory using exponential backoff rules.
+ * - commitPending: persist all buffered changes with at most one write per key.
  */
 export interface ApiKeyFeedback {
-	reportApiKeyStatus(key: ApiKeyWithProvider, success: boolean, isRateLimited?: boolean, isKeyDataUpdated?: boolean, isPermanentlyFailed?: boolean, executionCtx?: ExecutionContext): Promise<void>;
+	/**
+	 * Buffer that caller-updated key.keyData should be persisted (no DB write).
+	 */
+	recordKeyDataUpdated(key: ApiKeyWithProvider): void;
+
+	/**
+	 * Mark the key as permanently failed (sticky flag, no DB write).
+	 */
+	recordApiKeyPermanentlyFailed(key: ApiKeyWithProvider): void;
+
+	/**
+	 * Buffer throttle changes for a specific bucket:
+	 * - BY_KEY providers use the global "_global_" bucket (model string is ignored).
+	 * - BY_MODEL providers use the provided model string as the bucket key.
+	 * Applies exponential backoff on rate limit or max consecutive failures, resets on success.
+	 */
+	recordModelStatus(
+		key: ApiKeyWithProvider,
+		model: string,
+		success: boolean,
+		isRateLimited?: boolean
+	): void;
+
+	/**
+	 * Persist all buffered updates with at most one write per key.
+	 */
+	commitPending(executionCtx?: ExecutionContext): Promise<void>;
 }
 
+/**
+ * Helper: resolve the target throttle bucket key.
+ * - BY_MODEL + model provided -> model bucket
+ * - otherwise -> "_global_"
+ */
+function getThrottleTargetKey(providerMode: ThrottleMode, model: string | null): string {
+	if (providerMode === ThrottleMode.BY_MODEL && model) {
+		return model;
+	}
+	return '_global_';
+}
 
 /**
- * ApiKeyThrottleHelper class manages API key throttling and status updates.
- * It supports filtering keys, checking expiration, handling throttling (with exponential backoff),
- * and updating key status including persistence of keyData if updated by the caller.
+ * Read the current throttle context for a given bucket:
+ * - throttleDataMap: mutable in-memory map for this key (empty object if not set)
+ * - oldThrottleData: current bucket's ThrottleData or null
+ * - minThrottle/maxThrottle: provider-configured bounds (minutes converted to ms)
+ * - consecutiveFailures: current bucket failure count (defaults to 0)
+ */
+function readThrottleContext(key: ApiKeyWithProvider, targetKey: string) {
+	const throttleDataMap =
+		typeof key.throttleData === 'object' && key.throttleData !== null && !Array.isArray(key.throttleData)
+			? (key.throttleData as unknown as Record<string, ThrottleData>)
+			: {};
+
+	const oldThrottleData = throttleDataMap[targetKey] || null;
+	const minThrottle = key.provider.minThrottleDuration * 60 * 1000;
+	const maxThrottle = key.provider.maxThrottleDuration * 60 * 1000;
+
+	const consecutiveFailures = oldThrottleData?.consecutiveFailures || 0;
+
+	return { throttleDataMap, oldThrottleData, minThrottle, maxThrottle, consecutiveFailures };
+}
+
+/**
+ * Compute the next ThrottleData for a bucket given the outcome flags:
+ * - isRateLimited: apply exponential backoff and reset failures
+ * - success: reset to healthy if previously throttled or unhealthy
+ * - failure (non-rate-limit): increment failures; when reaching threshold, apply backoff and reset failures
+ */
+function computeNextThrottleData(
+	old: ThrottleData | null,
+	success: boolean,
+	isRateLimited: boolean,
+	consecutiveFailuresBefore: number,
+	minMs: number,
+	maxMs: number
+): { newThrottleData: ThrottleData | null } {
+	const now = Date.now();
+	const currentBackoff = old?.currentBackoffDuration ?? minMs;
+	const consecutiveFailures = consecutiveFailuresBefore;
+
+	if (isRateLimited) {
+		const nextBackoff = old ? Math.min(currentBackoff * 2, maxMs) : minMs;
+		return {
+			newThrottleData: { expiration: now + nextBackoff, currentBackoffDuration: nextBackoff, consecutiveFailures: 0 },
+		};
+	}
+
+	if (success) {
+		if (old && (old.expiration > now || old.consecutiveFailures > 0 || old.currentBackoffDuration > minMs)) {
+			return {
+				newThrottleData: { expiration: 0, currentBackoffDuration: minMs, consecutiveFailures: 0 },
+			};
+		}
+		return { newThrottleData: old };
+	}
+
+	const newFailures = consecutiveFailures + 1;
+	if (newFailures >= MAX_CONSECUTIVE_FAILURES) {
+		const nextBackoff = old ? Math.min(currentBackoff * 2, maxMs) : minMs;
+		return {
+			newThrottleData: { expiration: now + nextBackoff, currentBackoffDuration: nextBackoff, consecutiveFailures: 0 },
+		};
+	} else {
+		return {
+			newThrottleData: {
+				...(old || { expiration: 0, currentBackoffDuration: minMs, consecutiveFailures: 0 }),
+				consecutiveFailures: newFailures,
+			},
+		};
+	}
+}
+
+/**
+ * Apply new throttle data into the map:
+ * - Healthy state (expiration 0, failures 0, backoff == minMs) removes the bucket entry to keep the map compact
+ * - Otherwise, set/overwrite the bucket entry
+ */
+function applyNewThrottleData(
+	throttleDataMap: Record<string, ThrottleData>,
+	targetKey: string,
+	newThrottleData: ThrottleData | null,
+	minMs: number
+) {
+	if (
+		newThrottleData &&
+		newThrottleData.expiration === 0 &&
+		newThrottleData.consecutiveFailures === 0 &&
+		newThrottleData.currentBackoffDuration === minMs
+	) {
+		delete throttleDataMap[targetKey];
+	} else if (newThrottleData) {
+		throttleDataMap[targetKey] = newThrottleData;
+	}
+}
+
+/**
+ * Detect whether throttle data changed at a field level.
+ */
+function throttleChanged(a: ThrottleData | null, b: ThrottleData | null): boolean {
+	if (!a && !b) return false;
+	if (!a || !b) return true;
+	return (
+		a.expiration !== b.expiration ||
+		a.currentBackoffDuration !== b.currentBackoffDuration ||
+		a.consecutiveFailures !== b.consecutiveFailures
+	);
+}
+
+/**
+ * ApiKeyThrottleHelper:
+ * - Filters out throttled/permanently failed keys per model on read-side
+ * - Buffers key-level and bucket-level mutations in-memory
+ * - Persists all buffered changes in a single commit per key
  */
 export class ApiKeyThrottleHelper implements ApiKeyFeedback {
 	constructor(
 		private keys: ApiKeyWithProvider[],
 		private db: Database,
 		private keyFilter?: (key: ApiKeyWithProvider) => boolean,
-		private currentModel: string | null = null // The current model being used for BY_MODEL throttling
 	) { }
 
+	private pendingUpdates = new Map<
+		number,
+		{ throttleData?: Prisma.InputJsonValue; keyData?: Prisma.InputJsonValue; permanentlyFailed?: boolean }
+	>();
+
 	/**
-	 * Asynchronously yields available API keys.
-	 * The iterator filters out permanently failed keys and currently throttled keys.
+	 * Query-only helper to check throttling for the given key and model.
+	 * - BY_KEY: checks "_global_" bucket
+	 * - BY_MODEL: checks the provided model bucket
 	 */
-	async *getAvailableKeys(): AsyncIterableIterator<ApiKeyWithProvider> {
-		const now = Date.now();
-		const filteredKeys = this.keys.filter(key =>
-			(!this.keyFilter || this.keyFilter(key)) && !key.permanentlyFailed
-		);
+	isModelThrottled(
+		key: ApiKeyWithProvider,
+		model: string,
+		now: number = Date.now()
+	): { throttled: boolean; remainingMs: number; throttleData: ThrottleData | null } {
+		const throttleDataMap =
+			typeof key.throttleData === 'object' && key.throttleData !== null && !Array.isArray(key.throttleData)
+				? (key.throttleData as unknown as Record<string, ThrottleData>)
+				: {};
 
-		const candidateKeys: {key: ApiKeyWithProvider, throttleData: ThrottleData | null}[] = [];
-
-		for (const key of filteredKeys) {
-			let currentThrottleData: ThrottleData | null = null;
-			let throttleDataMap: Record<string, ThrottleData> | null = null;
-
-			// Safely cast key.throttleData to a Record<string, ThrottleData> if it's a non-array object
-			if (typeof key.throttleData === 'object' && key.throttleData !== null && !Array.isArray(key.throttleData)) {
-				throttleDataMap = key.throttleData as unknown as Record<string, ThrottleData>;
-			}
-
-			// Determine which throttle data to check based on the provider's throttle mode
-			if (key.provider.throttleMode === ThrottleMode.BY_KEY) {
-				currentThrottleData = throttleDataMap?._global_ || null;
-			} else if (key.provider.throttleMode === ThrottleMode.BY_MODEL && this.currentModel) {
-				currentThrottleData = throttleDataMap?.[this.currentModel] || null;
-			}
-
-			// Check if the key is currently throttled
-			if (currentThrottleData && currentThrottleData.expiration > now) {
-				console.log(`ApiKey ${key.id} is currently throttled for ${key.provider.throttleMode === ThrottleMode.BY_MODEL ? `model ${this.currentModel}` : 'all models'}. Expires in ${((currentThrottleData.expiration - now) / 1000).toFixed(2)}s.`);
-				continue; // Skip currently throttled key
-			}
-
-			candidateKeys.push({ key, throttleData: currentThrottleData });
+		let data: ThrottleData | null = null;
+		if (key.provider.throttleMode === ThrottleMode.BY_KEY) {
+			data = throttleDataMap['_global_'] || null;
+		} else if (key.provider.throttleMode === ThrottleMode.BY_MODEL) {
+			data = throttleDataMap[model] || null;
 		}
 
-		// Sort candidateKeys: prioritize keys without failures, put keys with failures at the end
+		if (data && data.expiration > now) {
+			return { throttled: true, remainingMs: Math.max(0, data.expiration - now), throttleData: data };
+		}
+		return { throttled: false, remainingMs: 0, throttleData: data };
+	}
+
+	/**
+	 * Yield available keys for a specific model:
+	 * - Excludes permanently failed keys
+	 * - Excludes currently throttled keys for that model (or globally for BY_KEY)
+	 * - Sorts by consecutive failure count ascending to prefer healthier keys
+	 */
+	async *getAvailableKeys(model: string): AsyncIterableIterator<ApiKeyWithProvider> {
+		const now = Date.now();
+		const filteredKeys = this.keys.filter((key) => (!this.keyFilter || this.keyFilter(key)) && !key.permanentlyFailed);
+
+		const candidateKeys: { key: ApiKeyWithProvider; throttleData: ThrottleData | null }[] = [];
+
+		for (const key of filteredKeys) {
+			const { throttled, remainingMs, throttleData } = this.isModelThrottled(key, model, now);
+			if (throttled) {
+				console.log(
+					`ApiKey ${key.id} is currently throttled for ${key.provider.throttleMode === ThrottleMode.BY_MODEL ? `model "${model}"` : 'all models'
+					}. Expires in ${(remainingMs / 1000).toFixed(2)}s.`
+				);
+				continue;
+			}
+
+			candidateKeys.push({ key, throttleData: throttleData });
+		}
+
 		candidateKeys.sort((a, b) => {
 			const aFailures = a.throttleData?.consecutiveFailures || 0;
 			const bFailures = b.throttleData?.consecutiveFailures || 0;
-
-			// Sort by consecutive failures count (ascending)
-			// Keys with 0 failures will come first, then keys with more failures
 			return aFailures - bFailures;
 		});
 
@@ -87,111 +258,88 @@ export class ApiKeyThrottleHelper implements ApiKeyFeedback {
 	}
 
 	/**
-	 * Reports the status of an API key and updates its throttling and keyData persistence.
-	 * @param key The ApiKey object used for the call.
-	 * @param success Whether the API call was successful.
-	 * @param isRateLimited Whether the API call failed due to rate limiting.
-	 * @param isKeyDataUpdated Whether the keyData field of the ApiKey object has been updated by the caller and needs to be persisted.
-	 * @param isPermanentlyFailed Whether the API key is considered permanently failed.
-	 * @param executionCtx Hono's execution context, used for waitUntil.
+	 * Buffer that caller-updated keyData should be persisted.
 	 */
-	async reportApiKeyStatus(key: ApiKeyWithProvider, success: boolean, isRateLimited: boolean = false, isKeyDataUpdated: boolean = false, isPermanentlyFailed: boolean = false, executionCtx?: ExecutionContext): Promise<void> {
-		let throttleDataMap: Record<string, ThrottleData> = (key.throttleData && typeof key.throttleData === 'object' && !Array.isArray(key.throttleData))
-			? key.throttleData as unknown as Record<string, ThrottleData>
-			: {};
+	recordKeyDataUpdated(key: ApiKeyWithProvider): void {
+		const update = this.pendingUpdates.get(key.id) || {};
+		update.keyData = key.keyData as unknown as Prisma.InputJsonValue;
+		this.pendingUpdates.set(key.id, update);
+	}
 
-		// Use provider's min/max throttle durations, fallback to hardcoded defaults if not set
-		const minThrottle = key.provider.minThrottleDuration * 60 * 1000;
-		const maxThrottle = key.provider.maxThrottleDuration * 60 * 1000;
+	/**
+	 * Mark the key as permanently failed.
+	 */
+	recordApiKeyPermanentlyFailed(key: ApiKeyWithProvider): void {
+		const update = this.pendingUpdates.get(key.id) || {};
+		update.permanentlyFailed = true;
+		key.permanentlyFailed = true;
+		this.pendingUpdates.set(key.id, update);
+	}
 
-		let targetKey: string = '_global_'; // Default for BY_KEY throttling
+	/**
+	 * Buffer throttle changes for the target bucket (global or per model).
+	 * - Applies exponential backoff on rate limit or excessive consecutive failures
+	 * - Resets to healthy on success
+	 */
+	recordModelStatus(
+		key: ApiKeyWithProvider,
+		model: string,
+		success: boolean,
+		isRateLimited: boolean = false
+	): void {
+		const targetKey = getThrottleTargetKey(key.provider.throttleMode, model);
 
-		if (key.provider.throttleMode === ThrottleMode.BY_MODEL && this.currentModel) {
-			targetKey = this.currentModel;
+		const { throttleDataMap, oldThrottleData, minThrottle, maxThrottle, consecutiveFailures } = readThrottleContext(
+			key,
+			targetKey
+		);
+
+		const { newThrottleData } = computeNextThrottleData(
+			oldThrottleData,
+			success,
+			isRateLimited,
+			consecutiveFailures,
+			minThrottle,
+			maxThrottle
+		);
+
+		const changed = throttleChanged(oldThrottleData, newThrottleData);
+
+		if (changed) {
+			applyNewThrottleData(throttleDataMap, targetKey, newThrottleData, minThrottle);
+			// reflect in-memory for subsequent reads
+			key.throttleData = throttleDataMap as unknown as Prisma.JsonValue;
 		}
 
-		const oldThrottleData = throttleDataMap[targetKey] || null;
-		let newThrottleData: ThrottleData | null = oldThrottleData;
-
-		const currentBackoffDuration = oldThrottleData?.currentBackoffDuration || minThrottle;
-		let consecutiveFailures = oldThrottleData?.consecutiveFailures || 0;
-
-		if (isRateLimited) {
-			// If rate-limited, apply exponential backoff and reset consecutive failures.
-			const nextBackoff = oldThrottleData ? Math.min(currentBackoffDuration * 2, maxThrottle) : minThrottle;
-			const expiration = Date.now() + nextBackoff;
-			newThrottleData = {
-				expiration,
-				currentBackoffDuration: nextBackoff,
-				consecutiveFailures: 0 // Reset failures on rate limit
-			};
-			console.log(`ApiKey ${key.id} was rate-limited for ${targetKey}. Throttling for ${nextBackoff / 1000}s. Resetting failure count.`);
-		} else if (success) {
-			// If successful, reset throttling and failure status if there was any.
-			if (oldThrottleData && (oldThrottleData.expiration > Date.now() || oldThrottleData.consecutiveFailures > 0 || oldThrottleData.currentBackoffDuration > minThrottle)) {
-				newThrottleData = {
-					expiration: 0,
-					currentBackoffDuration: minThrottle,
-					consecutiveFailures: 0
-				};
-				console.log(`ApiKey ${key.id} is now healthy for ${targetKey}. Resetting throttle and failure status.`);
-			}
-		} else { // Failed for a reason other than rate limiting
-			consecutiveFailures++;
-			console.log(`ApiKey ${key.id} failed for ${targetKey}. Consecutive failures: ${consecutiveFailures}.`);
-
-			if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
-				// Reached max failures, apply exponential backoff and reset counter
-				const nextBackoff = oldThrottleData ? Math.min(currentBackoffDuration * 2, maxThrottle) : minThrottle;
-				const expiration = Date.now() + nextBackoff;
-				newThrottleData = {
-					expiration,
-					currentBackoffDuration: nextBackoff,
-					consecutiveFailures: 0 // Reset after throttling
-				};
-				console.log(`ApiKey ${key.id} reached max consecutive failures for ${targetKey}. Throttling for ${nextBackoff / 1000}s.`);
-			} else {
-				// Not at max failures yet, just update the count
-				newThrottleData = {
-					...(oldThrottleData || { expiration: 0, currentBackoffDuration: minThrottle, consecutiveFailures: 0 }),
-					consecutiveFailures: consecutiveFailures
-				};
-			}
-		}
-
-		// Only update the database if throttleData has actually changed, keyData was updated, or key is permanently failed
-		const shouldUpdateDbThrottle = JSON.stringify(oldThrottleData) !== JSON.stringify(newThrottleData);
-
-		if (shouldUpdateDbThrottle || isKeyDataUpdated || isPermanentlyFailed) {
-			if (newThrottleData && newThrottleData.expiration === 0 && newThrottleData.consecutiveFailures === 0) {
-				// If throttling is cleared and there are no failures, remove the entry
-				delete throttleDataMap[targetKey];
-			} else {
-				throttleDataMap[targetKey] = newThrottleData!;
-			}
-
-			const updateData: { throttleData?: Prisma.InputJsonValue; keyData?: Prisma.InputJsonValue; permanentlyFailed?: boolean } = {};
-
-			if (shouldUpdateDbThrottle) {
-				updateData.throttleData = Object.keys(throttleDataMap).length > 0
+		if (changed) {
+			const update = this.pendingUpdates.get(key.id) || {};
+			update.throttleData =
+				Object.keys(throttleDataMap).length > 0
 					? (throttleDataMap as unknown as Prisma.InputJsonValue)
 					: (Prisma.JsonNull as unknown as Prisma.InputJsonValue);
-			}
+			this.pendingUpdates.set(key.id, update);
+		}
+	}
 
-			if (isKeyDataUpdated) {
-				updateData.keyData = key.keyData as unknown as Prisma.InputJsonValue;
-			}
+	/**
+	 * Persist all buffered updates in a single batch:
+	 * - One DB write per key
+	 * - Clears the buffer after scheduling/awaiting writes
+	 */
+	async commitPending(executionCtx?: ExecutionContext): Promise<void> {
+		if (this.pendingUpdates.size === 0) return;
 
-			if (isPermanentlyFailed) {
-				updateData.permanentlyFailed = true;
-			}
+		const tasks: Promise<any>[] = [];
+		for (const [keyId, update] of this.pendingUpdates.entries()) {
+			tasks.push(this.db.updateApiKey(keyId, update));
+		}
 
-			const updatePromise = this.db.updateApiKey(key.id, updateData);
-			if (executionCtx && executionCtx.waitUntil) {
-				executionCtx.waitUntil(updatePromise);
-			} else {
-				await updatePromise;
-			}
+		this.pendingUpdates.clear();
+
+		if (executionCtx && executionCtx.waitUntil) {
+			executionCtx.waitUntil(Promise.all(tasks));
+		} else {
+			await Promise.all(tasks);
 		}
 	}
 }
