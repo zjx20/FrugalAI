@@ -187,9 +187,7 @@ function throttleChanged(a: ThrottleData | null, b: ThrottleData | null): boolea
  */
 export class ApiKeyThrottleHelper implements ApiKeyFeedback {
 	constructor(
-		private keys: ApiKeyWithProvider[],
 		private db: Database,
-		private keyFilter?: (key: ApiKeyWithProvider) => boolean,
 	) { }
 
 	private pendingUpdates = new Map<
@@ -225,40 +223,19 @@ export class ApiKeyThrottleHelper implements ApiKeyFeedback {
 		return { throttled: false, remainingMs: 0, throttleData: data };
 	}
 
-	/**
-	 * Yield available keys for a specific model:
-	 * - Excludes permanently failed keys
-	 * - Excludes currently throttled keys for that model (or globally for BY_KEY)
-	 * - Sorts by consecutive failure count ascending to prefer healthier keys
-	 */
-	async *getAvailableKeys(model: string): AsyncIterableIterator<ApiKeyWithProvider> {
-		const now = Date.now();
-		const filteredKeys = this.keys.filter((key) => (!this.keyFilter || this.keyFilter(key)) && !key.permanentlyFailed);
-
-		const candidateKeys: { key: ApiKeyWithProvider; throttleData: ThrottleData | null }[] = [];
-
-		for (const key of filteredKeys) {
-			const { throttled, remainingMs, throttleData } = this.isModelThrottled(key, model, now);
-			if (throttled) {
-				console.log(
-					`ApiKey ${key.id} is currently throttled for ${key.provider.throttleMode === ThrottleMode.BY_MODEL ? `model "${model}"` : 'all models'
-					}. Expires in ${(remainingMs / 1000).toFixed(2)}s.`
-				);
-				continue;
+	consecutiveFailuresOf(key: ApiKeyWithProvider, models: string[]): number {
+		const throttleDataMap =
+			typeof key.throttleData === 'object' && key.throttleData !== null && !Array.isArray(key.throttleData)
+				? (key.throttleData as unknown as Record<string, ThrottleData>)
+				: {};
+		let result = 0;
+		for (const model of models) {
+			const data = throttleDataMap[model] || null;
+			if (data && data.consecutiveFailures) {
+				result += data.consecutiveFailures;
 			}
-
-			candidateKeys.push({ key, throttleData: throttleData });
 		}
-
-		candidateKeys.sort((a, b) => {
-			const aFailures = a.throttleData?.consecutiveFailures || 0;
-			const bFailures = b.throttleData?.consecutiveFailures || 0;
-			return aFailures - bFailures;
-		});
-
-		for (const cand of candidateKeys) {
-			yield cand.key;
-		}
+		return result;
 	}
 
 	/**

@@ -175,6 +175,23 @@ document.addEventListener('DOMContentLoaded', () => {
     return errors;
   }
 
+  // Collect buckets with consecutive failures (>0), shown inline like last errors (no hover tips)
+  // Note: "_global_" is a special bucket meaning the whole key is throttled/errored.
+  function getFailingBuckets(key) {
+    if (!key || !key.throttleData || typeof key.throttleData !== 'object') return [];
+    const entries = Object.entries(key.throttleData)
+      .filter(([bucket, v]) => v && typeof v === 'object' && 'expiration' in v && 'consecutiveFailures' in v);
+
+    const failing = [];
+    for (const [bucket, v] of entries) {
+      const count = Number(v.consecutiveFailures || 0);
+      if (count > 0) {
+        failing.push({ bucket, count });
+      }
+    }
+    return failing;
+  }
+
   // Simple HTML escape to avoid injecting raw error strings into DOM
   function escapeHtml(str) {
     return String(str)
@@ -211,7 +228,16 @@ document.addEventListener('DOMContentLoaded', () => {
                 return `<small style="color:#d32f2f" title="${title}">[${label}] ${escapeHtml(e.error)}</small>`;
               }).join('<br>')}</div>`
             : '';
-          keyInfo.innerHTML = `${statusIndicator} <b>${key.providerName}</b> (ID: ${key.id})${notesText}${lastErrorsHtml}`;
+          const failingBuckets = getFailingBuckets(key);
+          const failingHtml = failingBuckets.length
+            ? `<div style="margin-top:2px">${failingBuckets.map(e => {
+                const label = e.bucket === '_global_' ? 'Global' : escapeHtml(e.bucket);
+                const title = e.bucket === '_global_' ? 'Global (key-level) consecutive failures' : 'Model-specific consecutive failures';
+                const suffix = e.count > 1 ? 's' : '';
+                return `<small style="color:#ff9800" title="${title}">[${label}] Failing ${e.count} consecutive time${suffix}</small>`;
+              }).join('<br>')}</div>`
+            : '';
+          keyInfo.innerHTML = `${statusIndicator} <b>${key.providerName}</b> (ID: ${key.id})${notesText}${lastErrorsHtml}${failingHtml}`;
 
           const buttonGroup = document.createElement('div');
 
