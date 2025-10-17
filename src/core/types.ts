@@ -16,6 +16,11 @@ export interface ExecutionContext {
 	props: any;
 }
 
+export interface RequestContext {
+	executionCtx?: ExecutionContext;
+	request: Request;
+}
+
 export type OpenAIRequest = ChatCompletionCreateParams;
 
 type GeminiGenerationConfig = Omit<GenerateContentConfig,
@@ -84,7 +89,7 @@ export interface ProviderHandler {
 	 * @throws {Error} If the provider does not support the OpenAI protocol.
 	 * @returns A promise that resolves to the Response object.
 	 */
-	handleOpenAIRequest(ctx: ExecutionContext, request: OpenAIRequest, cred: Credential): Promise<Response | Error>;
+	handleOpenAIRequest(ctx: RequestContext, request: OpenAIRequest, cred: Credential): Promise<Response | Error>;
 
 	/**
 	 * Handles a request using the Gemini API protocol.
@@ -94,7 +99,7 @@ export interface ProviderHandler {
 	 * @throws {Error} If the provider does not support the Gemini protocol.
 	 * @returns A promise that resolves to the Response object.
 	 */
-	handleGeminiRequest(ctx: ExecutionContext, request: GeminiRequest, cred: Credential): Promise<Response | Error>;
+	handleGeminiRequest(ctx: RequestContext, request: GeminiRequest, cred: Credential): Promise<Response | Error>;
 
 	/**
 	 * Handles a request using the Anthropic API protocol.
@@ -104,7 +109,7 @@ export interface ProviderHandler {
 	 * @throws {Error} If the provider does not support the Anthropic protocol.
 	 * @returns A promise that resolves to the Response object.
 	 */
-	handleAnthropicRequest(ctx: ExecutionContext, request: AnthropicRequest, cred: Credential): Promise<Response | Error>;
+	handleAnthropicRequest(ctx: RequestContext, request: AnthropicRequest, cred: Credential): Promise<Response | Error>;
 }
 
 export type ApiKeyWithProvider = ApiKey & { provider: Provider };

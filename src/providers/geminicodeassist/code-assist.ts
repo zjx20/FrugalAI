@@ -1,6 +1,6 @@
 
 import { OAuth2Client } from "google-auth-library";
-import { ExecutionContext, Protocol, ProviderHandler, OpenAIRequest, GeminiRequest, AnthropicRequest, Credential, ThrottledError, ApiKeyWithProvider, GeminiRequestBody } from "../../core/types";
+import { Protocol, ProviderHandler, OpenAIRequest, GeminiRequest, AnthropicRequest, Credential, ThrottledError, ApiKeyWithProvider, GeminiRequestBody, RequestContext } from "../../core/types";
 import { convertOpenAiRequestToGemini, convertGeminiResponseToOpenAi, GeminiToOpenAiSseTransformer } from "../../adapters/openai-gemini";
 
 const CODE_ASSIST_ENDPOINT = 'https://cloudcode-pa.googleapis.com';
@@ -159,13 +159,10 @@ class GeminiCodeAssistHandler implements ProviderHandler {
 		}
 		const { accessToken, projectId } = checkResult;
 
-		let isRateLimited = false;
-
 		try {
 			const response = await this.forwardRequest(accessToken, projectId, model, method, requestBody, sse);
 
 			if (response.status === 429) {
-				isRateLimited = true;
 				const message = await response.text();
 				console.log(`ApiKey ${key.id} was rate-limited. Message: ${message}`);
 				return new ThrottledError(`ApiKey ${key.id} was rate-limited. Message: ${message}`);
@@ -285,7 +282,7 @@ class GeminiCodeAssistHandler implements ProviderHandler {
 		}
 	}
 
-	async handleOpenAIRequest(ctx: ExecutionContext, request: OpenAIRequest, cred: Credential): Promise<Response | Error> {
+	async handleOpenAIRequest(ctx: RequestContext, request: OpenAIRequest, cred: Credential): Promise<Response | Error> {
 		const geminiReq = convertOpenAiRequestToGemini(request);
 		const response = await this.sendRequestToGeminiCodeAssist(cred, geminiReq.model, geminiReq.request, geminiReq.sse, geminiReq.method);
 		if (response instanceof Error) {
@@ -298,7 +295,7 @@ class GeminiCodeAssistHandler implements ProviderHandler {
 		return response;
 	}
 
-	async handleGeminiRequest(ctx: ExecutionContext, request: GeminiRequest, cred: Credential): Promise<Response | Error> {
+	async handleGeminiRequest(ctx: RequestContext, request: GeminiRequest, cred: Credential): Promise<Response | Error> {
 		const response = await this.sendRequestToGeminiCodeAssist(cred, request.model, request.request, request.sse, request.method);
 		if (response instanceof Error) {
 			return response;
@@ -309,7 +306,7 @@ class GeminiCodeAssistHandler implements ProviderHandler {
 		return response;
 	}
 
-	async handleAnthropicRequest(ctx: ExecutionContext, request: AnthropicRequest, cred: Credential): Promise<Response | Error> {
+	async handleAnthropicRequest(ctx: RequestContext, request: AnthropicRequest, cred: Credential): Promise<Response | Error> {
 		return new Error("Method not implemented. Anthropic protocol is not supported.");
 	}
 }

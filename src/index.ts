@@ -5,7 +5,7 @@ import { Database } from './core/db';
 import userApp from './user';
 import adminApp from './admin';
 import { ApiKeyThrottleHelper } from './core/throttle-helper';
-import { AnthropicRequest, ApiKeyWithProvider, Credential, GeminiRequest, OpenAIRequest, Protocol, ProviderHandler, ThrottledError, UserWithKeys } from './core/types';
+import { AnthropicRequest, ApiKeyWithProvider, Credential, GeminiRequest, OpenAIRequest, Protocol, ProviderHandler, RequestContext, ThrottledError, UserWithKeys } from './core/types';
 import { providerHandlerMap } from './providers/providers';
 
 export interface Env {
@@ -303,14 +303,22 @@ async function getApiKeysAndHandleRequest(
 }
 
 app.post('/v1/chat/completions', async (c) => {
+	const ctx: RequestContext = {
+		executionCtx: c.executionCtx,
+		request: c.req.raw,
+	};
 	const openAIRequestBody: OpenAIRequest = c.get('parsedBody');
 	return getApiKeysAndHandleRequest(c, Protocol.OpenAI, openAIRequestBody.model, async (handler, adjustedModelId, cred) => {
 		openAIRequestBody.model = adjustedModelId;
-		return handler.handleOpenAIRequest(c.executionCtx, openAIRequestBody, cred);
+		return handler.handleOpenAIRequest(ctx, openAIRequestBody, cred);
 	});
 });
 
 app.post('/v1beta/models/:modelAndMethod{(([a-zA-Z0-9_-]+\\/)?[a-zA-Z0-9.-]+(\\$[a-zA-Z0-9.-]+)?(,([a-zA-Z0-9_-]+\\/)?[a-zA-Z0-9.-]+(\\$[a-zA-Z0-9.-]+)?)*):[a-zA-Z]+}', async (c) => {
+	const ctx: RequestContext = {
+		executionCtx: c.executionCtx,
+		request: c.req.raw,
+	};
 	// model pattern: [provider/]model[$alias]
 	// modelAndMethod pattern: model1[,model2[,model3...]]:method
 	const modelAndMethod = c.req.param('modelAndMethod');
@@ -327,15 +335,19 @@ app.post('/v1beta/models/:modelAndMethod{(([a-zA-Z0-9_-]+\\/)?[a-zA-Z0-9.-]+(\\$
 
 	return getApiKeysAndHandleRequest(c, Protocol.Gemini, reqModels, async (handler, adjustedModelId, cred) => {
 		geminiRequest.model = adjustedModelId;
-		return handler.handleGeminiRequest(c.executionCtx, geminiRequest, cred);
+		return handler.handleGeminiRequest(ctx, geminiRequest, cred);
 	});
 });
 
 app.post('/v1/messages', async (c) => {
+	const ctx: RequestContext = {
+		executionCtx: c.executionCtx,
+		request: c.req.raw,
+	};
 	const anthropicRequest: AnthropicRequest = c.get('parsedBody');
 	return getApiKeysAndHandleRequest(c, Protocol.Anthropic, anthropicRequest.model, async (handler, adjustedModelId, cred) => {
 		anthropicRequest.model = adjustedModelId;
-		return handler.handleAnthropicRequest(c.executionCtx, anthropicRequest, cred);
+		return handler.handleAnthropicRequest(ctx, anthropicRequest, cred);
 	});
 });
 

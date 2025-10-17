@@ -1,4 +1,4 @@
-import { AnthropicRequest, ApiKeyWithProvider, Credential, GeminiRequest, OpenAIRequest, Protocol, ProviderHandler, ThrottledError } from "../../core/types";
+import { AnthropicRequest, ApiKeyWithProvider, Credential, GeminiRequest, OpenAIRequest, Protocol, ProviderHandler, RequestContext, ThrottledError } from "../../core/types";
 import { convertAnthropicRequestToOpenAI, convertOpenAIResponseToAnthropic } from '../../adapters/anthropic-openai';
 import crypto from 'crypto';
 
@@ -180,7 +180,7 @@ class CodeBuddyHandler implements ProviderHandler {
 		return isNaN(timestamp) ? null : timestamp;
 	}
 
-	async handleOpenAIRequest(ctx: ExecutionContext, request: OpenAIRequest, cred: Credential): Promise<Response | Error> {
+	async handleOpenAIRequest(ctx: RequestContext, request: OpenAIRequest, cred: Credential): Promise<Response | Error> {
 		var forceRefresh = false;
 		var retries = 0;
 		while (true) {
@@ -218,11 +218,11 @@ class CodeBuddyHandler implements ProviderHandler {
 		}
 	}
 
-	async handleGeminiRequest(ctx: ExecutionContext, request: GeminiRequest, cred: Credential): Promise<Response | Error> {
+	async handleGeminiRequest(ctx: RequestContext, request: GeminiRequest, cred: Credential): Promise<Response | Error> {
 		return new Error("Method not implemented. Gemini protocol is not supported.");
 	}
 
-	async handleAnthropicRequest(ctx: ExecutionContext, request: AnthropicRequest, cred: Credential): Promise<Response | Error> {
+	async handleAnthropicRequest(ctx: RequestContext, request: AnthropicRequest, cred: Credential): Promise<Response | Error> {
 		// HACK: The following keywords are part of ClaudeCode's system instruction but are blocked by CodeBuddy's keyword detection, so they are replaced.
 		if (request.system) {
 			const replacements: [string, string][] = [
@@ -251,7 +251,10 @@ class CodeBuddyHandler implements ProviderHandler {
 		}
 
 		// HACK: CodeBuddy only supports streaming, so `stream` is forcibly set to true.
-		// request.stream = true;
+		if (!request.stream) {
+			console.warn(`CodeBuddy provider only supports streaming. Forcibly setting 'stream' to true. Request is from ${ctx.request.headers.get('user-agent') || 'unknown user agent'}.`);
+			(request as any).stream = true;
+		}
 
 		// Convert Anthropic request to OpenAI format
 		const openaiRequest = convertAnthropicRequestToOpenAI(request);
@@ -276,7 +279,7 @@ class CodeBuddyHandler implements ProviderHandler {
 		return await convertOpenAIResponseToAnthropic(
 			request.stream || false,
 			response,
-			ctx
+			ctx.executionCtx
 		);
 	}
 }

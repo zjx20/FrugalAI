@@ -1,4 +1,4 @@
-import { ExecutionContext, Protocol, ProviderHandler, OpenAIRequest, GeminiRequest, AnthropicRequest, Credential, ThrottledError, ApiKeyWithProvider, GeminiRequestBody } from "../../core/types";
+import { RequestContext, Protocol, ProviderHandler, OpenAIRequest, GeminiRequest, AnthropicRequest, Credential, ThrottledError, ApiKeyWithProvider, GeminiRequestBody } from "../../core/types";
 import { convertOpenAiRequestToGemini, convertGeminiResponseToOpenAi, GeminiToOpenAiSseTransformer } from "../../adapters/openai-gemini";
 
 const GOOGLE_AI_STUDIO_ENDPOINT = 'https://generativelanguage.googleapis.com';
@@ -35,7 +35,7 @@ class GoogleAIStudioHandler implements ProviderHandler {
 		throw new Error('Unsupported keyData format. Expected a string API key.');
 	}
 
-	async sendRequestToGoogleAIStudio(ctx: ExecutionContext, cred: Credential, model: string, requestBody: GeminiRequestBody, sse: boolean, method?: string): Promise<Response | Error> {
+	async sendRequestToGoogleAIStudio(ctx: RequestContext, cred: Credential, model: string, requestBody: GeminiRequestBody, sse: boolean, method?: string): Promise<Response | Error> {
 		method = method ?? (sse ? 'streamGenerateContent' : 'generateContent');
 
 		const key = cred.apiKey;
@@ -115,7 +115,7 @@ class GoogleAIStudioHandler implements ProviderHandler {
 		}
 	}
 
-	async handleOpenAIRequest(ctx: ExecutionContext, request: OpenAIRequest, cred: Credential): Promise<Response | Error> {
+	async handleOpenAIRequest(ctx: RequestContext, request: OpenAIRequest, cred: Credential): Promise<Response | Error> {
 		const geminiReq = convertOpenAiRequestToGemini(request);
 		const response = await this.sendRequestToGoogleAIStudio(ctx, cred, geminiReq.model, geminiReq.request, geminiReq.sse, geminiReq.method);
 		if (response instanceof Error) {
@@ -128,7 +128,7 @@ class GoogleAIStudioHandler implements ProviderHandler {
 		return response;
 	}
 
-	async handleGeminiRequest(ctx: ExecutionContext, request: GeminiRequest, cred: Credential): Promise<Response | Error> {
+	async handleGeminiRequest(ctx: RequestContext, request: GeminiRequest, cred: Credential): Promise<Response | Error> {
 		const response = await this.sendRequestToGoogleAIStudio(ctx, cred, request.model, request.request, request.sse);
 		if (response instanceof Error) {
 			return response;
@@ -137,7 +137,7 @@ class GoogleAIStudioHandler implements ProviderHandler {
 		return response;
 	}
 
-	async handleAnthropicRequest(ctx: ExecutionContext, request: AnthropicRequest, cred: Credential): Promise<Response | Error> {
+	async handleAnthropicRequest(ctx: RequestContext, request: AnthropicRequest, cred: Credential): Promise<Response | Error> {
 		return new Error("Method not implemented. Anthropic protocol is not supported.");
 	}
 }
