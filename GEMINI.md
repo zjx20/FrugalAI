@@ -240,7 +240,98 @@ This project provides an admin interface to manage provider configurations (mode
   - Prefer short JWT lifetimes (24h or shorter).
   - Consider additional hardening (IP allowlist, TOTP, session versioning in KV/D1) if needed.
 
-## 5. Agent Guidelines
+## 6. Token Counting Endpoint
+
+The project implements a `/v1/messages/count_tokens` endpoint that provides token counting functionality for Anthropic-compatible messages.
+
+### Implementation Details
+
+- **Endpoint**: `POST /v1/messages/count_tokens`
+- **Authentication**: Requires User Token or Access Token (same as other API endpoints)
+- **Location**: Implemented in `src/index.ts`
+
+### Configuration
+
+The endpoint uses an optional Cloudflare Worker secret `ANTHROPIC_API_KEY`:
+
+1. **With `ANTHROPIC_API_KEY` set**: The endpoint proxies requests to the official Anthropic API (https://api.anthropic.com/v1/messages/count_tokens) for accurate token counts.
+2. **Without `ANTHROPIC_API_KEY`**: The endpoint uses a fallback estimation algorithm and returns approximate token counts.
+
+### Setting the Secret
+
+To enable accurate token counting, set the `ANTHROPIC_API_KEY` secret:
+
+```bash
+npx wrangler secret put ANTHROPIC_API_KEY
+```
+
+Obtain an Anthropic API key from https://console.anthropic.com/
+
+### Estimation Algorithm (Fallback Mode)
+
+When `ANTHROPIC_API_KEY` is not set, the system estimates tokens using:
+
+**Text Content:**
+- Message text: ~4 characters per token
+- System prompts: ~4 characters per token
+
+**Images:**
+- ~1500 tokens per image (conservative average)
+
+**Documents (PDFs):**
+- Estimates based on base64 data length
+- ~250 tokens per estimated page
+- Fallback: 2000 tokens if size unknown
+
+**Tools:**
+- JSON schema length / 3 (tools have overhead)
+
+**Tool Use & Results:**
+- Tool use blocks: JSON size / 4
+- Tool result text: ~4 characters per token
+- Tool result images: ~1500 tokens per image
+
+**Extended Thinking:**
+- Thinking block text: ~4 characters per token
+- Note: Previous assistant turn thinking is not counted per Anthropic docs
+
+### Warning Headers
+
+When using estimation mode (no API key or API error), the response includes a warning header:
+
+```
+Warning: 199 - "Token count is estimated. Set ANTHROPIC_API_KEY secret for accurate counts."
+```
+
+### Response Format
+
+The endpoint returns JSON in Anthropic's format:
+
+```json
+{
+  "input_tokens": 123
+}
+```
+
+In estimation mode with errors, an additional `error` field may be included.
+
+### Usage Example
+
+```bash
+curl -X POST "https://your-worker-url/v1/messages/count_tokens" \
+  -H "Authorization: Bearer sk-your-token" \
+  -H "Content-Type: application/json" \
+  -H "anthropic-version: 2023-06-01" \
+  -d '{
+    "model": "claude-3-5-sonnet-20241022",
+    "messages": [{
+      "role": "user",
+      "content": "Hello, how are you?"
+    }]
+  }'
+```
+
+## 7. Agent Guidelines
 
 This section outlines the operational guidelines for the Gemini CLI Agent when interacting with this project.
 

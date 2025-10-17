@@ -7,9 +7,14 @@ import adminApp from './admin';
 import { ApiKeyThrottleHelper } from './core/throttle-helper';
 import { AnthropicRequest, ApiKeyWithProvider, Credential, GeminiRequest, OpenAIRequest, Protocol, ProviderHandler, RequestContext, ThrottledError, UserWithKeys } from './core/types';
 import { providerHandlerMap } from './providers/providers';
+import { MessageCountTokensParams } from '@anthropic-ai/sdk/resources';
+
+const MAX_LOG_BODY_LENGTH = 16 * 1024; // 16KB
 
 export interface Env {
 	DB: D1Database;
+	ANTHROPIC_API_KEY?: string;
+	ENVIRONMENT?: string;
 }
 
 type AppVariables = {
@@ -49,9 +54,31 @@ const jsonBodyParser = async (c: Context<{ Bindings: Env; Variables: AppVariable
 	}
 	await next();
 	if (c.res.status === 400) {
-		console.error(`Upstream respond 400, path: ${c.req.path}, method: ${c.req.method}, body: ${JSON.stringify(c.get('parsedBody'))}`);
+		const text = await c.res.text() || '';
+		let requestBodyStr = JSON.stringify(c.get('parsedBody'));
+		if (requestBodyStr && requestBodyStr.length > MAX_LOG_BODY_LENGTH) {
+			requestBodyStr = requestBodyStr.substring(0, MAX_LOG_BODY_LENGTH) + '... (truncated)';
+		}
+		console.error(`Upstream responded 400, path: ${c.req.path}, method: ${c.req.method}, response: ${text}, request: ${requestBodyStr}`);
+		c.res = new Response(text, { status: 400, headers: c.res.headers });
 	}
 };
+
+// --- Global Error Handling ---
+app.onError((err, c) => {
+	console.error('Unhandled error occurred:', err);
+	if (err instanceof Error && err.stack) {
+		console.error(err.stack);
+	}
+
+	const isDevelopment = c.env.ENVIRONMENT === 'development';
+
+	return c.json({
+		error: 'Internal Server Error',
+		message: isDevelopment ? err.message : 'An unexpected error occurred. Please contact support.',
+		stack: isDevelopment ? err.stack : undefined,
+	}, 500);
+});
 
 // --- User Management API ---
 app.route('/api', userApp);
@@ -349,6 +376,169 @@ app.post('/v1/messages', async (c) => {
 		anthropicRequest.model = adjustedModelId;
 		return handler.handleAnthropicRequest(ctx, anthropicRequest, cred);
 	});
+});
+
+// Token counting helper function
+function estimateTokenCount(body: MessageCountTokensParams): number {
+	let totalTokens = 0;
+
+	// Estimate tokens from messages
+	if (body.messages && Array.isArray(body.messages)) {
+		for (const message of body.messages) {
+			if (typeof message.content === 'string') {
+				// Simple text content: ~4 chars per token
+				totalTokens += Math.ceil(message.content.length / 4);
+			} else if (Array.isArray(message.content)) {
+				for (const block of message.content) {
+					if (block.type === 'text' && block.text) {
+						// Text block: ~4 chars per token
+						totalTokens += Math.ceil(block.text.length / 4);
+					} else if (block.type === 'image') {
+						// Image estimation based on Anthropic's pricing:
+						// Images are tokenized differently based on size
+						// Rough estimate: ~1500 tokens per image (conservative average)
+						totalTokens += 1500;
+					} else if (block.type === 'document' && block.source) {
+						// PDF document estimation
+						// According to docs, PDFs can vary widely
+						// Conservative estimate based on typical PDF: ~2000-3000 tokens
+						// We'll use data length as a rough proxy if available
+						if (block.source.type === 'base64' && block.source.data) {
+							// Base64 encoded data length / 6000 gives rough page estimate
+							// Each page ~200-300 tokens
+							const estimatedPages = Math.max(1, Math.ceil(block.source.data.length / 6000));
+							totalTokens += estimatedPages * 250;
+						} else {
+							// Default estimate for unknown PDF
+							totalTokens += 2000;
+						}
+					} else if (block.type === 'thinking' && block.thinking) {
+						// Extended thinking blocks (from previous assistant turns are ignored per docs)
+						// But current turn thinking is counted
+						// Note: The API documentation states thinking from PREVIOUS turns
+						// is NOT counted, but we can't determine which turn this is from
+						// the request alone. For safety, we'll estimate it.
+						totalTokens += Math.ceil(block.thinking.length / 4);
+					} else if (block.type === 'tool_use') {
+						// Tool use blocks: estimate based on JSON size
+						totalTokens += Math.ceil(JSON.stringify(block).length / 4);
+					} else if (block.type === 'tool_result') {
+						// Tool result blocks
+						if (typeof block.content === 'string') {
+							totalTokens += Math.ceil(block.content.length / 4);
+						} else if (Array.isArray(block.content)) {
+							// Recursive handling for tool result content blocks
+							for (const resultBlock of block.content) {
+								if (resultBlock.type === 'text' && resultBlock.text) {
+									totalTokens += Math.ceil(resultBlock.text.length / 4);
+								} else if (resultBlock.type === 'image') {
+									totalTokens += 1500;
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// Estimate tokens from system prompt
+	if (body.system) {
+		if (typeof body.system === 'string') {
+			totalTokens += Math.ceil(body.system.length / 4);
+		} else if (Array.isArray(body.system)) {
+			for (const block of body.system) {
+				if (block.type === 'text' && block.text) {
+					totalTokens += Math.ceil(block.text.length / 4);
+				}
+			}
+		}
+	}
+
+	// Estimate tokens from tools
+	// Tools add significant overhead due to schema definitions
+	if (body.tools && Array.isArray(body.tools)) {
+		for (const tool of body.tools) {
+			// Each tool definition: name + description + schema
+			// Schema can be quite large, use JSON length / 3 for better estimate
+			const toolJson = JSON.stringify(tool);
+			totalTokens += Math.ceil(toolJson.length / 3);
+		}
+	}
+
+	// Extended thinking budget (if specified)
+	if (body.thinking && typeof body.thinking === 'object' && 'budget_tokens' in body.thinking) {
+		// The budget_tokens is the MAX tokens, not used tokens
+		// We don't add this to the input count as it's output budget
+		// But we should note it exists in case of future consideration
+	}
+
+	return totalTokens;
+}
+
+app.post('/v1/messages/count_tokens', jsonBodyParser, proxyAuth, async (c) => {
+	const requestBody = c.get('parsedBody');
+	const anthropicApiKey = c.env.ANTHROPIC_API_KEY;
+
+	// If ANTHROPIC_API_KEY is not set, estimate tokens and return with warning
+	if (!anthropicApiKey) {
+		const estimatedTokens = estimateTokenCount(requestBody);
+
+		return c.json(
+			{
+				input_tokens: estimatedTokens
+			},
+			200,
+			{
+				'Warning': '199 - "Token count is estimated. Set ANTHROPIC_API_KEY secret for accurate counts."'
+			}
+		);
+	}
+
+	// Forward request to official Anthropic API
+	try {
+		const anthropicVersion = c.req.header('anthropic-version') || '2023-06-01';
+		const anthropicBeta = c.req.header('anthropic-beta');
+
+		const headers: Record<string, string> = {
+			'x-api-key': anthropicApiKey,
+			'anthropic-version': anthropicVersion,
+			'content-type': 'application/json',
+		};
+
+		if (anthropicBeta) {
+			headers['anthropic-beta'] = anthropicBeta;
+		}
+
+		const response = await fetch('https://api.anthropic.com/v1/messages/count_tokens', {
+			method: 'POST',
+			headers: headers,
+			body: JSON.stringify(requestBody),
+		});
+
+		// Return the response from Anthropic API
+		return new Response(response.body, {
+			status: response.status,
+			statusText: response.statusText,
+			headers: response.headers,
+		});
+	} catch (error) {
+		console.error('Error calling Anthropic count_tokens API:', error);
+
+		// Fall back to estimation if API call fails
+		const estimatedTokens = estimateTokenCount(requestBody);
+
+		return c.json(
+			{
+				input_tokens: estimatedTokens,
+				error: 'Failed to reach Anthropic API, returning estimate'
+			},
+			200,
+			{
+				'Warning': '199 - "Token count is estimated due to API error."'
+			}
+		);
+	}
 });
 
 export default app;

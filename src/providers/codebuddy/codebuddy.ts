@@ -27,7 +27,7 @@ class CodeBuddyHandler implements ProviderHandler {
 
 	canAccessModelWithKey(apiKey: ApiKeyWithProvider, model: string): boolean {
 		const codeBuddyModels = ["default-model"]; // International version
-		const copilotModels = ["default", "claude-4.5", "claude-4.0"];
+		const copilotModels = ["default", "claude-4.0"];
 		if (!codeBuddyModels.includes(model) && !copilotModels.includes(model)) {
 			return true;
 		}

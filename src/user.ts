@@ -46,14 +46,10 @@ app.use('*', async (c, next) => {
 
 app.post('/user/register', async (c) => {
 	const db = c.get('db');
-	try {
-		const { name } = (await c.req.json()) as { name?: string };
-		const token = `sk-${generateToken(48)}`;
-		const user = await db.createUser(token, name);
-		return c.json({ token: user.token });
-	} catch (e: any) {
-		return c.json({ error: e.message }, 500);
-	}
+	const { name } = (await c.req.json()) as { name?: string };
+	const token = `sk-${generateToken(48)}`;
+	const user = await db.createUser(token, name);
+	return c.json({ token: user.token });
 });
 
 app.use('/user/keys', authMiddleware);
@@ -72,19 +68,15 @@ app.get('/user/keys', (c) => {
 app.post('/user/keys', async (c) => {
 	const db = c.get('db');
 	const user = c.get('user');
-	try {
-		const { providerName, keyData, notes } = (await c.req.json()) as { providerName: string; keyData: any, notes?: string };
-		if (!providerName || !keyData) {
-			return c.json({ error: 'Missing providerName or keyData' }, 400);
-		}
-		if (!Object.values(ProviderName).includes(providerName as ProviderName)) {
-			return c.json({ error: 'Unsupported provider' }, 400);
-		}
-		const apiKey = await db.createApiKey(user.id, providerName as ProviderName, keyData, notes);
-		return c.json(apiKey, 201);
-	} catch (e: any) {
-		return c.json({ error: e.message }, 500);
+	const { providerName, keyData, notes } = (await c.req.json()) as { providerName: string; keyData: any, notes?: string };
+	if (!providerName || !keyData) {
+		return c.json({ error: 'Missing providerName or keyData' }, 400);
 	}
+	if (!Object.values(ProviderName).includes(providerName as ProviderName)) {
+		return c.json({ error: 'Unsupported provider' }, 400);
+	}
+	const apiKey = await db.createApiKey(user.id, providerName as ProviderName, keyData, notes);
+	return c.json(apiKey, 201);
 });
 
 app.delete('/user/key', async (c) => {
@@ -92,66 +84,54 @@ app.delete('/user/key', async (c) => {
 	const user = c.get('user');
 	const { id } = (await c.req.json()) as { id: number };
 
-	try {
-		const keyToDelete = await db.getApiKeyById(id);
-		if (!keyToDelete || keyToDelete.ownerId !== user.id) {
-			return c.json({ error: 'API Key not found or you do not have permission' }, 404);
-		}
-		await db.deleteApiKey(id);
-		return new Response(null, { status: 204 });
-	} catch (e: any) {
-		return c.json({ error: e.message }, 500);
+	const keyToDelete = await db.getApiKeyById(id);
+	if (!keyToDelete || keyToDelete.ownerId !== user.id) {
+		return c.json({ error: 'API Key not found or you do not have permission' }, 404);
 	}
+	await db.deleteApiKey(id);
+	return new Response(null, { status: 204 });
 });
 
 app.put('/user/key', async (c) => {
 	const db = c.get('db');
 	const user = c.get('user');
 
-	try {
-		const { id, keyData, notes } = (await c.req.json()) as { id: number; keyData?: any; notes?: string };
-		const keyToUpdate = await db.getApiKeyById(id);
+	const { id, keyData, notes } = (await c.req.json()) as { id: number; keyData?: any; notes?: string };
+	const keyToUpdate = await db.getApiKeyById(id);
 
-		if (!keyToUpdate || keyToUpdate.ownerId !== user.id) {
-			return c.json({ error: 'API Key not found or you do not have permission' }, 404);
-		}
-
-		const updatedKey = await db.updateApiKeyDetails(id, {
-			keyData: keyData || undefined,
-			notes: notes || undefined,
-		});
-
-		return c.json(updatedKey);
-	} catch (e: any) {
-		return c.json({ error: e.message }, 500);
+	if (!keyToUpdate || keyToUpdate.ownerId !== user.id) {
+		return c.json({ error: 'API Key not found or you do not have permission' }, 404);
 	}
+
+	const updatedKey = await db.updateApiKeyDetails(id, {
+		keyData: keyData || undefined,
+		notes: notes || undefined,
+	});
+
+	return c.json(updatedKey);
 });
 
 app.post('/user/key/reset', async (c) => {
 	const db = c.get('db');
 	const user = c.get('user');
 
-	try {
-		const { id } = (await c.req.json()) as { id: number };
-		const keyToReset = await db.getApiKeyById(id);
+	const { id } = (await c.req.json()) as { id: number };
+	const keyToReset = await db.getApiKeyById(id);
 
-		if (!keyToReset || keyToReset.ownerId !== user.id) {
-			return c.json({ error: 'API Key not found or you do not have permission' }, 404);
-		}
-
-		// Check if the key is paused - if so, just unpause it
-		const throttleData = keyToReset.throttleData as any;
-		if (throttleData && throttleData.paused) {
-			const unpaused = await db.unpauseApiKey(id);
-			return c.json(unpaused);
-		}
-
-		// Otherwise, do a full reset
-		const resetKey = await db.resetApiKeyStatus(id);
-		return c.json(resetKey);
-	} catch (e: any) {
-		return c.json({ error: e.message }, 500);
+	if (!keyToReset || keyToReset.ownerId !== user.id) {
+		return c.json({ error: 'API Key not found or you do not have permission' }, 404);
 	}
+
+	// Check if the key is paused - if so, just unpause it
+	const throttleData = keyToReset.throttleData as any;
+	if (throttleData && throttleData.paused) {
+		const unpaused = await db.unpauseApiKey(id);
+		return c.json(unpaused);
+	}
+
+	// Otherwise, do a full reset
+	const resetKey = await db.resetApiKeyStatus(id);
+	return c.json(resetKey);
 });
 
 app.use('/user/key/pause', authMiddleware);
@@ -159,19 +139,15 @@ app.post('/user/key/pause', async (c) => {
 	const db = c.get('db');
 	const user = c.get('user');
 
-	try {
-		const { id } = (await c.req.json()) as { id: number };
-		const keyToPause = await db.getApiKeyById(id);
+	const { id } = (await c.req.json()) as { id: number };
+	const keyToPause = await db.getApiKeyById(id);
 
-		if (!keyToPause || keyToPause.ownerId !== user.id) {
-			return c.json({ error: 'API Key not found or you do not have permission' }, 404);
-		}
-
-		const pausedKey = await db.pauseApiKey(id);
-		return c.json(pausedKey);
-	} catch (e: any) {
-		return c.json({ error: e.message }, 500);
+	if (!keyToPause || keyToPause.ownerId !== user.id) {
+		return c.json({ error: 'API Key not found or you do not have permission' }, 404);
 	}
+
+	const pausedKey = await db.pauseApiKey(id);
+	return c.json(pausedKey);
 });
 
 // Access Token management endpoints
@@ -179,56 +155,40 @@ app.post('/user/key/pause', async (c) => {
 app.get('/user/access-tokens', async (c) => {
 	const db = c.get('db');
 	const user = c.get('user');
-	try {
-		const tokens = await db.getUserAccessTokens(user.id);
-		return c.json(tokens);
-	} catch (e: any) {
-		return c.json({ error: e.message }, 500);
-	}
+	const tokens = await db.getUserAccessTokens(user.id);
+	return c.json(tokens);
 });
 
 app.post('/user/access-tokens', async (c) => {
 	const db = c.get('db');
 	const user = c.get('user');
-	try {
-		const { name } = (await c.req.json()) as { name?: string };
-		const token = `sk-api-${generateToken(48)}`;
-		const accessToken = await db.createAccessToken(token, user.id, name);
-		return c.json(accessToken, 201);
-	} catch (e: any) {
-		return c.json({ error: e.message }, 500);
-	}
+	const { name } = (await c.req.json()) as { name?: string };
+	const token = `sk-api-${generateToken(48)}`;
+	const accessToken = await db.createAccessToken(token, user.id, name);
+	return c.json(accessToken, 201);
 });
 
 app.delete('/user/access-token', async (c) => {
 	const db = c.get('db');
 	const user = c.get('user');
-	try {
-		const { id } = (await c.req.json()) as { id: number };
+	const { id } = (await c.req.json()) as { id: number };
 
-		// Verify the token belongs to the user
-		const tokens = await db.getUserAccessTokens(user.id);
-		const tokenToRevoke = tokens.find(t => t.id === id);
+	// Verify the token belongs to the user
+	const tokens = await db.getUserAccessTokens(user.id);
+	const tokenToRevoke = tokens.find(t => t.id === id);
 
-		if (!tokenToRevoke) {
-			return c.json({ error: 'Access token not found or you do not have permission' }, 404);
-		}
-
-		await db.revokeAccessToken(id);
-		return new Response(null, { status: 204 });
-	} catch (e: any) {
-		return c.json({ error: e.message }, 500);
+	if (!tokenToRevoke) {
+		return c.json({ error: 'Access token not found or you do not have permission' }, 404);
 	}
+
+	await db.revokeAccessToken(id);
+	return new Response(null, { status: 204 });
 });
 
 app.get('/providers', async (c) => {
 	const db = c.get('db');
-	try {
-		const providers = await db.getAllProviders();
-		return c.json(providers.map(p => p.name));
-	} catch (e: any) {
-		return c.json({ error: e.message }, 500);
-	}
+	const providers = await db.getAllProviders();
+	return c.json(providers.map(p => p.name));
 });
 
 export default app;

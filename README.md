@@ -67,31 +67,69 @@ npm run deploy
 
 Upon successful deployment, Cloudflare will provide you with a public **Endpoint URL** (e.g., `https://your-worker-name.your-subdomain.workers.dev`).
 
-### 4. (Optional) Setting Up the Administrator Interface
+### 4. (Optional) Configuring Secrets
 
-This project includes an administrator interface for managing provider configurations. To enable it, you must set two secret variables in your Cloudflare Worker dashboard. This should be done as part of the deployment process.
+This project uses Cloudflare Worker secrets for sensitive configuration. Secrets are optional but enable additional features. You can configure them through the Cloudflare dashboard or via Wrangler CLI.
 
-1.  **Create `ADMIN_PASSWORD_HASH`**: This is the SHA-256 hash of your desired admin password. Generate it with the following command and copy the output:
-    ```bash
-    echo -n 'your_admin_password' | shasum -a 256
-    ```
+#### Available Secrets
 
-2.  **Create `JWT_SECRET`**: This is a secret key for signing authentication tokens. Generate a secure random string with:
-    ```bash
-    openssl rand -base64 32
-    ```
+**1. `ADMIN_PASSWORD_HASH` (Optional - For Admin Interface)**
 
-In the Cloudflare dashboard, go to your Worker's **Settings > Variables** and add these two secrets under **Environment Variables**.
+Enables the administrator interface at `/admin.html` for managing provider configurations (models list, throttle settings).
 
-Alternatively, you can set them directly from your command line using Wrangler. Run the following commands and paste the secret value when prompted:
+- **Purpose**: Password authentication for admin panel
+- **How to generate**: Create a SHA-256 hash of your desired admin password:
+  ```bash
+  echo -n 'your_admin_password' | shasum -a 256
+  ```
+- **Required with**: `JWT_SECRET` (both needed for admin access)
+
+**2. `JWT_SECRET` (Optional - For Admin Interface)**
+
+Used to sign and verify JWT tokens for admin session management.
+
+- **Purpose**: Secure token signing for admin authentication (24-hour expiry)
+- **How to generate**: Create a secure random string:
+  ```bash
+  openssl rand -base64 32
+  ```
+- **Required with**: `ADMIN_PASSWORD_HASH` (both needed for admin access)
+
+**3. `ANTHROPIC_API_KEY` (Optional - For Token Counting)**
+
+Enables accurate token counting for the `/v1/messages/count_tokens` endpoint.
+
+- **Purpose**: Provides precise token counts via official Anthropic API
+- **Behavior when not set**: Endpoint returns estimated token counts with a warning header
+- **How to obtain**:
+  1. Visit https://console.anthropic.com/ and sign in
+  2. Navigate to API Keys section
+  3. Create a new API key
+  4. Copy the key (starts with "sk-ant-")
+- **Cost**: Token counting via Anthropic API is free but subject to rate limits
+
+#### Setting Secrets
+
+**Via Cloudflare Dashboard:**
+
+Go to your Worker's **Settings > Variables** and add secrets under **Environment Variables**.
+
+**Via Wrangler CLI:**
+
+Run the following commands and paste the secret value when prompted:
+
 ```bash
+# For admin interface (both required)
 npx wrangler secret put ADMIN_PASSWORD_HASH
 npx wrangler secret put JWT_SECRET
+
+# For accurate token counting (optional)
+npx wrangler secret put ANTHROPIC_API_KEY
 ```
 
 #### Accessing the Admin Interface
 
-Once your worker is deployed and the secrets are configured, you can access the admin panel by navigating to `/admin.html` on your worker's URL (e.g., `https://your-worker-name.your-subdomain.workers.dev/admin.html`).
+Once `ADMIN_PASSWORD_HASH` and `JWT_SECRET` are configured, access the admin panel at `/admin.html` on your worker's URL (e.g., `https://your-worker-name.your-subdomain.workers.dev/admin.html`).
 
 ## User and API Key Management
 
@@ -104,8 +142,6 @@ The system supports two types of API keys:
 1. **User Tokens** (Full Access): These tokens (prefixed with `sk-`) provide full access to both the LLM API and account management features. They can create, edit, and delete API keys, as well as manage access tokens.
 
 2. **Access Tokens** (API-Only): These tokens (prefixed with `sk-api-`) can only call the LLM API and cannot access account management features. They are safer to share or use in applications where you don't want to grant full account access.
-
-The setup process involves three main steps:
 
 ## User Registration and API Key Setup
 
