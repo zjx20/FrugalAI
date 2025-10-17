@@ -108,49 +108,28 @@ export class Database {
   }
 
   /**
-   * Pauses an API key by setting the paused flag in throttleData.
-   * This temporarily disables the key without affecting other throttle data.
+   * Pauses an API key by setting its `paused` flag to true.
+   * This temporarily disables the key.
    * @param id The ID of the API key to pause.
    * @returns A promise that resolves to the updated API key object.
    */
   async pauseApiKey(id: number): Promise<ApiKey> {
-    const key = await this.prisma.apiKey.findUnique({ where: { id } });
-    if (!key) {
-      throw new Error('API key not found');
-    }
-
-    let throttleData = key.throttleData as any || {};
-    throttleData.paused = true;
-
     return this.prisma.apiKey.update({
       where: { id },
-      data: { throttleData },
+      data: { paused: true },
     });
   }
 
   /**
-   * Unpauses an API key by removing the paused flag from throttleData.
+   * Unpauses an API key by setting its `paused` flag to false.
    * This re-enables a previously paused key.
    * @param id The ID of the API key to unpause.
    * @returns A promise that resolves to the updated API key object.
    */
   async unpauseApiKey(id: number): Promise<ApiKey> {
-    const key = await this.prisma.apiKey.findUnique({ where: { id } });
-    if (!key) {
-      throw new Error('API key not found');
-    }
-
-    let throttleData = key.throttleData as any || {};
-    delete throttleData.paused;
-
-    // If throttleData is now empty, set it to null
-    const hasOtherData = Object.keys(throttleData).length > 0;
-
     return this.prisma.apiKey.update({
       where: { id },
-      data: {
-        throttleData: hasOtherData ? throttleData : Prisma.JsonNull
-      },
+      data: { paused: false },
     });
   }
 

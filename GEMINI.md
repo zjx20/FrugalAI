@@ -184,60 +184,64 @@ This flexible matching allows users to reference models in multiple ways while m
 
 ## 4. Database Development Workflow (Prisma & D1)
 
-This section details the correct, multi-step process for modifying the database schema, which is crucial for the agent to follow.
+This section details the correct, intelligent, multi-step process for modifying the database schema. As an AI agent, you must follow these steps precisely.
 
 #### Step 1: Modify `prisma/schema.prisma`
 
-This file is the single source of truth for database models. Make all schema changes here.
+This file is the single source of truth for all database models. Make all schema changes here first.
 
-#### Step 2: Create an Empty Migration File
+#### Step 2: Generate Migration and Regenerate Client
 
-Use Wrangler to create the migration folder and empty `.sql` file.
+After modifying the schema, you must generate the corresponding SQL migration file and update the Prisma client. This is a multi-command process that you must execute carefully.
 
-```bash
-npx wrangler d1 migrations create <YOUR_DATABASE_NAME> <your_migration_name>
-```
--   `<YOUR_DATABASE_NAME>` is the `database_name` from `wrangler.jsonc`.
--   `<your_migration_name>` should be descriptive (e.g., `add_apikey_notes`).
+1.  **Read `wrangler.jsonc`**: Use your `read_file` tool to read the contents of `wrangler.jsonc`.
+2.  **Extract `database_name`**: In your internal reasoning, parse the JSON content to find the value of `database_name` from the `d1_databases` array. This value is now known to you.
+3.  **Create a descriptive `migration_name`**: Based on the schema changes, create a short, descriptive name (e.g., `add_paused_to_apikey`).
+4.  **Execute Migration Generation Commands**: Execute the following commands sequentially. You must substitute the actual `database_name` and `migration_name` that you have determined.
 
-#### Step 3: Generate SQL Diff
+    *   **Create the migration file:**
+        ```bash
+        npx wrangler d1 migrations create <DATABASE_NAME> <migration_name>
+        ```
+    *   **Get the latest migration filename:**
+        ```bash
+        ls -t migrations/*.sql | head -n 1
+        ```
+        The output of this command will be the filename you need for the next step.
+    *   **Generate the SQL diff:**
+        ```bash
+        npx prisma migrate diff --from-local-d1 --to-schema-datamodel ./prisma/schema.prisma --script --output <LATEST_MIGRATION_FILE>
+        ```
+    *   **Regenerate the Prisma client:**
+        ```bash
+        npx prisma generate
+        ```
 
-Use Prisma to generate the SQL commands by comparing the local D1 database state with the updated schema. The output must be piped into the file created in the previous step.
+**Important**: If any command fails, stop immediately and report the error. Do not proceed.
 
-```bash
-npx prisma migrate diff \
-  --from-local-d1 \
-  --to-schema-datamodel ./prisma/schema.prisma \
-  --script \
-  --output ./migrations/<000X_your_migration_name>.sql
-```
--   The agent must replace the `--output` path with the correct, newly generated migration file path.
+#### Step 3: Inform the User to Apply Migrations
 
-#### Step 4: Apply Migration to Local DB & Regenerate Client
+**Do not apply migrations automatically.** The timing of application must be controlled by the user.
 
-Apply the migration to the local D1 instance to keep it synchronized. **This step is critical** for future `diff` operations.
+After successfully generating the migration, you must inform the user and provide them with the **fully-formed commands** to apply the migration. You must replace `<YOUR_DATABASE_NAME>` with the actual `database_name` you extracted in Step 2.
 
-```bash
-npx wrangler d1 migrations apply <YOUR_DATABASE_NAME> --local
-```
--   `<YOUR_DATABASE_NAME>` is the `database_name` from `wrangler.jsonc`.
+**Example message to the user (assuming database name is 'FrugalAI-D1'):**
 
-After applying the migration, regenerate the Prisma Client to update its types.
+> The database migration has been generated successfully.
+>
+> When you are ready, please apply the changes:
+>
+> **For local testing:**
+> ```bash
+> npx wrangler d1 migrations apply FrugalAI-D1 --local
+> ```
+>
+> **For production:**
+> ```bash
+> npx wrangler d1 migrations apply FrugalAI-D1 --remote
+> ```
 
-```bash
-npx prisma generate
-```
-
-#### Step 5: Apply Migration to Production DB
-
-After local testing is complete, apply the migration to the production D1 database.
-
-```bash
-npx wrangler d1 migrations apply <YOUR_DATABASE_NAME> --remote
-```
--   `<YOUR_DATABASE_NAME>` is the `database_name` from `wrangler.jsonc`.
-
-This workflow ensures that schema changes are version-controlled and applied consistently across all environments.
+This workflow ensures that schema changes are generated intelligently and applied safely under user control, with clear, ready-to-use commands.
 
 ## 5. Administrator Interface
 

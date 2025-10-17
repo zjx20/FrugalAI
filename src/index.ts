@@ -232,7 +232,7 @@ function selectKeys(user: UserWithKeys, throttle: ApiKeyThrottleHelper, now: num
 	const result: CandidateKey[] = [];
 	for (const key of user.keys) {
 		// TODO: break early if there are too many keys
-		if (((key.throttleData || {}) as any).paused) {
+		if (key.paused) {
 			continue; // Skip paused keys
 		}
 		if (provider && key.providerName !== provider) {

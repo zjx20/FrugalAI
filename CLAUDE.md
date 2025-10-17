@@ -279,15 +279,52 @@ When a provider returns 429:
 
 ### Database Migrations
 
-**Always follow this sequence**:
-1. Edit `prisma/schema.prisma`
-2. Create empty migration: `npx wrangler d1 migrations create <DB_NAME> <name>`
-3. Generate SQL: `npx prisma migrate diff --from-local-d1 --to-schema-datamodel ./prisma/schema.prisma --script --output ./migrations/<file>.sql`
-4. Apply locally: `npx wrangler d1 migrations apply <DB_NAME> --local`
-5. Regenerate Prisma client: `npx prisma generate`
-6. Test with `npm run dev`
-7. Apply remotely: `npx wrangler d1 migrations apply <DB_NAME> --remote`
-8. Deploy: `npm run deploy`
+**Always follow this sequence precisely**:
+
+1.  **Edit `prisma/schema.prisma`**: This file is the single source of truth. Make all schema changes here first.
+
+2.  **Generate Migration and Client**: After modifying the schema, generate the SQL migration and regenerate the Prisma client by following these steps:
+    *   **Read `wrangler.jsonc`**: Use your `read_file` tool to get the contents of `wrangler.jsonc`.
+    *   **Extract `database_name`**: Parse the JSON content in your reasoning process to find the `database_name`. This value is now a known variable for you.
+    *   **Create a `migration_name`**: Create a short, descriptive name for the migration (e.g., `add_user_roles`).
+    *   **Execute Commands Sequentially**: Run the following commands one by one, substituting the known `<DATABASE_NAME>` and `<migration_name>`.
+
+        1.  Create the migration file:
+            ```bash
+            npx wrangler d1 migrations create <DATABASE_NAME> <migration_name>
+            ```
+        2.  Get the latest migration filename:
+            ```bash
+            ls -t migrations/*.sql | head -n 1
+            ```
+        3.  Generate the SQL diff (use the filename from the previous step for `<LATEST_MIGRATION_FILE>`):
+            ```bash
+            npx prisma migrate diff --from-local-d1 --to-schema-datamodel ./prisma/schema.prisma --script --output <LATEST_MIGRATION_FILE>
+            ```
+        4.  Regenerate the Prisma client:
+            ```bash
+            npx prisma generate
+            ```
+    *   If any command fails, stop and report the error.
+
+3.  **Inform the User to Apply Migrations**: **Do not apply migrations automatically.** The user must control when changes are applied. Provide the user with the **fully-formed commands**, replacing the placeholder with the actual `database_name` you extracted.
+
+    *   **Example message to the user (if database name is 'FrugalAI-D1'):**
+        > The database migration has been generated successfully.
+        >
+        > When you are ready, please apply the changes:
+        >
+        > **For local testing:**
+        > ```bash
+        > npx wrangler d1 migrations apply FrugalAI-D1 --local
+        > ```
+        >
+        > **For production:**
+        > ```bash
+        > npx wrangler d1 migrations apply FrugalAI-D1 --remote
+        > ```
+
+This workflow ensures migrations are generated correctly and applied safely by the user.
 
 ### Streaming Responses
 

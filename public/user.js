@@ -136,7 +136,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // Check if the key is paused first
-    if (key.throttleData && typeof key.throttleData === 'object' && key.throttleData.paused) {
+    if (key.paused) {
       return '<span title="This key has been manually paused and is temporarily disabled.">⏸️ Paused</span>';
     }
 
@@ -262,13 +262,13 @@ document.addEventListener('DOMContentLoaded', () => {
           }
 
           const pauseButton = document.createElement('button');
-          const isPaused = key.throttleData && typeof key.throttleData === 'object' && key.throttleData.paused;
+          const isPaused = key.paused;
           if (isPaused) {
             pauseButton.textContent = 'Resume';
             pauseButton.title = 'Resume this paused API key';
             pauseButton.style.backgroundColor = '#4caf50';
             pauseButton.style.color = 'white';
-            pauseButton.onclick = () => resetApiKey(key.id); // Reset will unpause
+            pauseButton.onclick = () => resumeApiKey(key.id);
           } else {
             pauseButton.textContent = 'Pause';
             pauseButton.title = 'Temporarily pause this API key';
@@ -416,6 +416,29 @@ document.addEventListener('DOMContentLoaded', () => {
     } else {
       const errorText = await response.text();
       alert(`Failed to pause API key: ${errorText}`);
+    }
+  }
+
+  async function resumeApiKey(id) {
+    if (!confirm('Are you sure you want to resume this API key?')) {
+      return;
+    }
+
+    const response = await fetch(`/api/user/key/unpause`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiToken}`,
+      },
+      body: JSON.stringify({ id }),
+    });
+
+    if (response.ok) {
+      alert('API key has been resumed successfully.');
+      loadApiKeys();
+    } else {
+      const errorText = await response.text();
+      alert(`Failed to resume API key: ${errorText}`);
     }
   }
 
