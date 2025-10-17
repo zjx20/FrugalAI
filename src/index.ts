@@ -269,6 +269,24 @@ function selectKeys(user: UserWithKeys, throttle: ApiKeyThrottleHelper, now: num
 	return result;
 }
 
+/**
+ * Resolves user-defined model aliases to actual model names.
+ * If the model name matches a user-defined alias, it returns the mapped model(s).
+ * Otherwise, it returns the original model name.
+ */
+function resolveUserModelAlias(modelName: string, userModelAliases: any): string {
+	if (!userModelAliases || typeof userModelAliases !== 'object') {
+		return modelName;
+	}
+
+	// Check if this model name is a user-defined alias
+	if (userModelAliases[modelName]) {
+		return userModelAliases[modelName];
+	}
+
+	return modelName;
+}
+
 async function getApiKeysAndHandleRequest(
 	c: Context<{ Bindings: Env; Variables: AppVariables }>,
 	protocol: Protocol,
@@ -277,8 +295,14 @@ async function getApiKeysAndHandleRequest(
 
 	const user = c.get('user');
 	const db = c.get('db');
+
+	// Resolve user-defined model aliases
+	// Split the models first, then resolve each one
+	const modelNames = reqModels.split(',');
+	const resolvedModels = modelNames.map(modelName => resolveUserModelAlias(modelName.trim(), user.modelAliases)).join(',');
+
 	const errors: Error[] = [];
-	for (const reqModel of reqModels.split(',')) {
+	for (const reqModel of resolvedModels.split(',')) {
 		const throttle = new ApiKeyThrottleHelper(db);
 		const { provider, model: reqModelId, alias: reqAlias } = extractModel(reqModel);
 		const candKeys = selectKeys(user, throttle, Date.now(), protocol, reqModelId, reqAlias, provider);

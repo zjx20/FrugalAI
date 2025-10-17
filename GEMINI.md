@@ -73,21 +73,56 @@ The system supports **provider-specific model selection** to enable precise cont
 3.  **Model Extraction**: The `extractModel()` function in `src/index.ts` parses the model string to separate the optional provider prefix from the model name
 4.  **Provider Filtering**: The `selectKeys()` function filters API keys based on both the model availability and the specified provider (if any)
 
-### 3.4. API Request Flow (Core Proxy)
+### 3.4. User-Defined Model Aliases
+
+The system supports **user-defined model aliases** to allow users to create custom mappings from arbitrary alias names to actual model names. This is particularly useful for AI tools that use fixed, built-in model names that cannot be customized.
+
+**Architecture:**
+
+1.  **Database Storage**: User model aliases are stored in the `User.modelAliases` field (JSON type) in the database schema as a key-value mapping (e.g., `{"my-alias": "provider/model1,model2"}`).
+
+2.  **API Endpoints** (`src/user.ts`):
+    -   `GET /api/user/model-aliases`: Retrieves all model aliases for the authenticated user
+    -   `PUT /api/user/model-aliases`: Creates or updates a model alias (requires `alias` and `models` parameters)
+    -   `DELETE /api/user/model-aliases`: Deletes a model alias (requires `alias` parameter)
+
+3.  **Resolution Logic** (`src/index.ts`):
+    -   The `resolveUserModelAlias()` function checks if a requested model name matches any user-defined alias
+    -   If a match is found, it returns the mapped model name(s)
+    -   This resolution happens in `getApiKeysAndHandleRequest()` before the model extraction logic
+    -   Supports all model formats including provider prefixes, comma-separated fallback models, and aliases
+
+**Validation Rules:**
+
+-   Alias names must contain only alphanumeric characters, hyphens, and underscores (`/^[a-zA-Z0-9_-]+$/`)
+-   Each alias can only map to one set of models (updating an existing alias replaces the old mapping)
+-   Aliases are stored per-user and are private to each user
+
+**Usage Example:**
+
+1.  User creates an alias via the web UI: `gpt-4` → `GEMINI_CODE_ASSIST/gemini-2.5-pro,gemini-2.5-flash`
+2.  An AI tool makes a request with model name `gpt-4`
+3.  The system resolves `gpt-4` to `GEMINI_CODE_ASSIST/gemini-2.5-pro,gemini-2.5-flash`
+4.  Request processing continues normally with the resolved model name(s)
+
+This feature enables compatibility with tools that have hard-coded model names while maintaining full support for provider-specific routing, multi-model fallback, and all other system features.
+
+### 3.5. API Request Flow (Core Proxy)
 
 1.  A user makes a request to a `/v1/...` endpoint, providing either a User Token (`sk-...`) or Access Token (`sk-api-...`) in the `Authorization: Bearer <token>` header.
 2.  The `bearerAuth` middleware in `src/index.ts` validates the token:
-    -   For User Tokens: Retrieves the user object and associated API keys from the database
-    -   For Access Tokens: Validates the token and retrieves the associated user's API keys
-3.  The `extractModel()` function parses the requested model to separate the optional provider prefix from the model name and alias.
-4.  **Multi-Model Fallback**: If the request specifies multiple models (comma-separated, e.g., `model1,model2,model3`), the system attempts them sequentially:
+    -   For User Tokens: Retrieves the user object (including `modelAliases` field) and associated API keys from the database
+    -   For Access Tokens: Validates the token and retrieves the associated user's data and API keys
+3.  **User Model Alias Resolution**: The `resolveUserModelAlias()` function checks if the requested model name matches any user-defined alias and replaces it with the target model(s) if found.
+4.  The `extractModel()` function parses the requested model to separate the optional provider prefix from the model name and alias.
+5.  **Multi-Model Fallback**: If the request specifies multiple models (comma-separated, e.g., `model1,model2,model3`), the system attempts them sequentially:
     -   First, it tries `model1` with all available providers
     -   If all providers fail or are rate-limited for `model1`, it moves to `model2`
     -   This continues until a model succeeds or all models are exhausted
-5.  The `selectKeys()` function filters for usable keys belonging to the appropriate provider (if specified) and supporting the requested model (i.e., not rate-limited or permanently failed).
-6.  The worker refreshes the `access_token` if necessary (for providers that require token refresh).
-7.  The worker forwards the request to the corresponding provider's API, handling fleet key rotation and rate-limiting logic.
-8.  The response is translated back to the standard Gemini API format and returned to the user.
+6.  The `selectKeys()` function filters for usable keys belonging to the appropriate provider (if specified) and supporting the requested model (i.e., not rate-limited or permanently failed).
+7.  The worker refreshes the `access_token` if necessary (for providers that require token refresh).
+8.  The worker forwards the request to the corresponding provider's API, handling fleet key rotation and rate-limiting logic.
+9.  The response is translated back to the standard Gemini API format and returned to the user.
 
 #### Token Authentication Details
 
@@ -95,7 +130,7 @@ The system supports **provider-specific model selection** to enable precise cont
 -   **Access Tokens (`sk-api-...`)**: Restricted to API endpoints (`/v1/*`) only, cannot access management operations
 -   **Token Validation**: Both token types are validated through the same authentication middleware but with different permission levels
 
-### 3.5. Model Matching Logic
+### 3.6. Model Matching Logic
 
 The `matchModel()` function in `src/index.ts` implements flexible model matching to support various use cases:
 

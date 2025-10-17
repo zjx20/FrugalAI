@@ -73,20 +73,24 @@ npx wrangler secret put ANTHROPIC_API_KEY  # Optional, for accurate token counti
 2. **Authentication**: Middleware validates tokens against D1 database:
    - **User Tokens** (`sk-*`): Full access to API and account management
    - **Access Tokens** (`sk-api-*`): API-only, cannot access management endpoints
-3. **Model Resolution**: Extracts provider/model/alias from request, supporting formats like:
+3. **User Model Alias Resolution** (`resolveUserModelAlias` in `src/index.ts`):
+   - Checks if requested model name matches any user-defined alias in `User.modelAliases`
+   - If match found, replaces model name with target model(s) from alias mapping
+   - Supports all model formats including provider prefixes and comma-separated fallbacks
+4. **Model Resolution**: Extracts provider/model/alias from request, supporting formats like:
    - `provider/model` (e.g., `GEMINI_CODE_ASSIST/gemini-2.5-flash`)
    - `model` (auto-selects provider randomly from available providers)
    - `model$alias` (uses provider-configured aliases)
    - Multi-model fallback: `model1,model2,model3` (tries models sequentially until one succeeds)
-4. **Key Selection** (`selectKeys` in `src/index.ts`): Filters user's API keys by:
+5. **Key Selection** (`selectKeys` in `src/index.ts`): Filters user's API keys by:
    - Provider compatibility (if provider prefix specified)
    - Protocol support (OpenAI/Gemini/Anthropic)
    - Model availability and per-key eligibility
    - Throttle status (per-key or per-model depending on provider's throttleMode)
    - Sorts by consecutive failure count (prioritizes healthier keys)
-5. **Token Refresh**: For providers requiring OAuth (e.g., GEMINI_CODE_ASSIST), refreshes access token if expired
-6. **Request Forwarding**: Delegates to provider-specific handler with fleet key rotation
-7. **Throttle Management**: Records success/failure and updates exponential backoff state
+6. **Token Refresh**: For providers requiring OAuth (e.g., GEMINI_CODE_ASSIST), refreshes access token if expired
+7. **Request Forwarding**: Delegates to provider-specific handler with fleet key rotation
+8. **Throttle Management**: Records success/failure and updates exponential backoff state
 
 ### Provider System
 
@@ -128,12 +132,13 @@ Provider implementations are registered in `src/providers/providers.ts` (`provid
 ### Database Schema
 
 **Models** (`prisma/schema.prisma`):
-- **User**: Has token, name, owns ApiKeys and AccessTokens
+- **User**: Has token, name, modelAliases (JSON), owns ApiKeys and AccessTokens
 - **AccessToken**: API-only tokens (sk-api-*) for limited access
 - **ApiKey**: Stores provider credentials, throttle data, permanent failure flag
 - **Provider**: Provider-level config (throttleMode, model list, backoff bounds)
 
 **JSON fields**:
+- `User.modelAliases`: User-defined model alias mappings (e.g., `{"gpt-4": "GEMINI_CODE_ASSIST/gemini-2.5-pro,gemini-2.5-flash"}`)
 - `ApiKey.keyData`: Provider-specific credential data (Base64 or JSON object)
 - `ApiKey.throttleData`: Map of throttle buckets (`{[model]: ThrottleData}` or `{_global_: ThrottleData}`)
 - `Provider.models`: Array of model names/aliases (e.g., `["gemini-2.5-flash", "gemini-2.5-pro$alias"]`)
@@ -159,6 +164,7 @@ Provider implementations are registered in `src/providers/providers.ts` (`provid
    - **GOOGLE_AI_STUDIO**: Get plain text API key from https://aistudio.google.com/api-keys (starts with "AIza...")
 3. **API Key Creation**: Login with User Token, select provider, paste credential string
 4. **Access Token Creation**: Create API-only tokens (sk-api-*) for limited access
+5. **Model Alias Creation** (Optional): Create custom aliases for fixed model names in AI tools
 
 **API endpoints** (`src/user.ts`):
 - `POST /api/users` - Register user
@@ -166,6 +172,9 @@ Provider implementations are registered in `src/providers/providers.ts` (`provid
 - `POST /api/keys` - Add provider key (accepts Base64 for CODE_ASSIST/CODE_BUDDY, plain text for AI_STUDIO)
 - `DELETE /api/keys/:id` - Delete key
 - Access token CRUD operations
+- `GET /api/user/model-aliases` - Get user's model aliases
+- `PUT /api/user/model-aliases` - Create or update model alias (requires `alias` and `models` parameters)
+- `DELETE /api/user/model-aliases` - Delete model alias (requires `alias` parameter)
 
 ### Admin Interface
 

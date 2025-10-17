@@ -3,13 +3,14 @@ import { PrismaD1 } from '@prisma/adapter-d1';
 import { Database } from './core/db';
 import { Hono } from 'hono';
 import { bearerAuth } from 'hono/bearer-auth';
+import { UserWithKeys } from './core/types';
 
 type Env = {
 	DB: D1Database;
 };
 
 type Variables = {
-	user: any;
+	user: UserWithKeys;
 	db: Database;
 };
 
@@ -189,6 +190,68 @@ app.get('/providers', async (c) => {
 	const db = c.get('db');
 	const providers = await db.getAllProviders();
 	return c.json(providers.map(p => p.name));
+});
+
+// Model Alias management endpoints
+
+app.use('/user/model-aliases', authMiddleware);
+
+app.get('/user/model-aliases', async (c) => {
+	const user = c.get('user');
+	const modelAliases = user.modelAliases || {};
+	return c.json(modelAliases);
+});
+
+app.put('/user/model-aliases', async (c) => {
+	const db = c.get('db');
+	const user = c.get('user');
+	const { alias, models } = (await c.req.json()) as { alias: string; models: string };
+
+	if (!alias || !models) {
+		return c.json({ error: 'Missing alias or models parameter' }, 400);
+	}
+
+	// Validate alias format
+	if (!/^[a-zA-Z0-9\.\/_-]+$/.test(alias)) {
+		return c.json({ error: 'Alias must contain only alphanumeric characters, hyphens, slashes, dots, and underscores' }, 400);
+	}
+
+	// Get current aliases
+	const currentAliases = (user.modelAliases as Record<string, string>) || {};
+
+	// Update or add the alias
+	currentAliases[alias] = models;
+
+	// Save to database
+	await db.updateUserModelAliases(user.id, currentAliases);
+
+	return c.json({ success: true, aliases: currentAliases });
+});
+
+app.delete('/user/model-aliases', async (c) => {
+	const db = c.get('db');
+	const user = c.get('user');
+	const { alias } = (await c.req.json()) as { alias: string };
+
+	if (!alias) {
+		return c.json({ error: 'Missing alias parameter' }, 400);
+	}
+
+	// Get current aliases
+	const currentAliases = (user.modelAliases as Record<string, string>) || {};
+
+	// Check if alias exists
+	if (!currentAliases[alias]) {
+		return c.json({ error: 'Alias not found' }, 404);
+	}
+
+	// Remove the alias
+	delete currentAliases[alias];
+
+	// Save to database
+	await db.updateUserModelAliases(user.id, Object.keys(currentAliases).length > 0 ? currentAliases : null);
+
+	return c.json({ success: true, aliases: currentAliases });
 });
 
 export default app;

@@ -226,6 +226,30 @@ If you want to use the service in applications or share API access without grant
 
 Access Tokens can be revoked at any time from the management interface without affecting your User Token or other Access Tokens.
 
+### Step 5: (Optional) Create Custom Model Aliases
+
+If you're using AI tools that don't allow custom model names (they use fixed, built-in model names), you can create custom model aliases to map those fixed names to your desired models:
+
+1. In the user management interface, scroll down to the "Model Aliases" section.
+2. Enter an alias name (e.g., "my-model" - this is the name your AI tool will use).
+3. Enter the target model(s) in the same format as API requests:
+   - Single model: `gemini-2.5-flash` or `GEMINI_CODE_ASSIST/gemini-2.5-flash`
+   - Multiple fallback models: `gemini-2.5-pro,gemini-2.5-flash`
+   - With provider prefix: `GEMINI_CODE_ASSIST/gemini-2.5-flash,CODE_BUDDY/gemini-2.5-flash`
+4. Click "Create Alias".
+
+**How it works:**
+- When your AI tool makes a request with the alias name (e.g., "my-model"), FrugalAI automatically replaces it with the target model(s) you configured.
+- The rest of the request processing (key selection, rate limiting, etc.) works exactly the same as normal requests.
+- Aliases support all features including provider prefixes, model fallbacks, and comma-separated model lists.
+
+**Example use case:**
+- Your AI tool is hard-coded to use "gpt-4" as the model name.
+- Create an alias: `gpt-4` → `GEMINI_CODE_ASSIST/gemini-2.5-pro,gemini-2.5-flash`
+- Now when the tool requests "gpt-4", it actually uses your Gemini models with automatic fallback.
+
+**Note:** Alias names must contain only alphanumeric characters, hyphens, and underscores. Each alias can only map to one set of models, and you can update or delete aliases at any time.
+
 ## How to Use the Service
 
 Once you have registered and added at least one `GEMINI_CODE_ASSIST` key, you can use the service by providing either your **User Token** (prefixed with `sk-`) or an **Access Token** (prefixed with `sk-api-`) as a Bearer token.

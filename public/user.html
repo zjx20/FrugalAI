@@ -76,6 +76,21 @@
       <h4>Create New Access Token</h4>
       <input type="text" id="access-token-name-input" placeholder="Token name (optional, e.g., 'My App Token')">
       <button id="create-access-token-button">Create Access Token</button>
+
+      <hr style="margin: 2em 0;">
+
+      <h3>Model Aliases</h3>
+      <p>Create custom aliases for model names. This allows you to use simpler names in AI tools that don't support custom model names.</p>
+      <ul id="model-aliases-list"></ul>
+      <p id="no-aliases-message" class="hidden">You don't have any model aliases yet.</p>
+
+      <h4>Create New Model Alias</h4>
+      <input type="text" id="alias-name-input" placeholder="Alias name (e.g., 'my-model')">
+      <input type="text" id="alias-models-input" placeholder="Target models (e.g., 'provider/model1,model2')">
+      <button id="create-alias-button">Create Alias</button>
+      <p style="font-size: 0.9em; color: #666; margin-top: 0.5em;">
+        Note: The target models support the same format as API requests, including provider prefixes and comma-separated fallback models.
+      </p>
     </div>
   </div>
 

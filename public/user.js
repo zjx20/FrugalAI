@@ -114,6 +114,7 @@ document.addEventListener('DOMContentLoaded', () => {
     loadProviders();
     loadApiKeys();
     loadAccessTokens();
+    loadModelAliases();
   }
 
   async function loadProviders() {
@@ -510,4 +511,97 @@ document.addEventListener('DOMContentLoaded', () => {
       alert('Failed to create access token.');
     }
   });
+
+  // Model Alias management
+  const modelAliasesList = document.getElementById('model-aliases-list');
+  const noAliasesMessage = document.getElementById('no-aliases-message');
+  const aliasNameInput = document.getElementById('alias-name-input');
+  const aliasModelsInput = document.getElementById('alias-models-input');
+  const createAliasButton = document.getElementById('create-alias-button');
+
+  async function loadModelAliases() {
+    if (!apiToken) return;
+    const response = await fetch('/api/user/model-aliases', {
+      headers: { 'Authorization': `Bearer ${apiToken}` },
+    });
+    if (response.ok) {
+      const aliases = await response.json();
+      modelAliasesList.innerHTML = '';
+      const aliasEntries = Object.entries(aliases);
+      if (aliasEntries.length === 0) {
+        noAliasesMessage.classList.remove('hidden');
+      } else {
+        noAliasesMessage.classList.add('hidden');
+        aliasEntries.forEach(([alias, models]) => {
+          const li = document.createElement('li');
+
+          const aliasInfo = document.createElement('span');
+          aliasInfo.innerHTML = `🏷️ <b>${alias}</b> → <code>${models}</code>`;
+
+          const buttonGroup = document.createElement('div');
+
+          const deleteButton = document.createElement('button');
+          deleteButton.textContent = 'Delete';
+          deleteButton.style.backgroundColor = '#f44336';
+          deleteButton.style.color = 'white';
+          deleteButton.onclick = () => deleteModelAlias(alias);
+
+          buttonGroup.appendChild(deleteButton);
+
+          li.appendChild(aliasInfo);
+          li.appendChild(buttonGroup);
+          modelAliasesList.appendChild(li);
+        });
+      }
+    }
+  }
+
+  createAliasButton.addEventListener('click', async () => {
+    const alias = aliasNameInput.value.trim();
+    const models = aliasModelsInput.value.trim();
+
+    if (!alias || !models) {
+      alert('Please enter both alias name and target models.');
+      return;
+    }
+
+    const response = await fetch('/api/user/model-aliases', {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiToken}`,
+      },
+      body: JSON.stringify({ alias, models }),
+    });
+
+    if (response.ok) {
+      aliasNameInput.value = '';
+      aliasModelsInput.value = '';
+      loadModelAliases();
+      alert('Model alias created successfully!');
+    } else {
+      const error = await response.json();
+      alert(`Failed to create model alias: ${error.error || 'Unknown error'}`);
+    }
+  });
+
+  async function deleteModelAlias(alias) {
+    if (!confirm(`Are you sure you want to delete the alias "${alias}"?`)) return;
+
+    const response = await fetch('/api/user/model-aliases', {
+      method: 'DELETE',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiToken}`,
+      },
+      body: JSON.stringify({ alias }),
+    });
+
+    if (response.status === 200) {
+      loadModelAliases();
+      alert('Model alias deleted successfully.');
+    } else {
+      alert('Failed to delete model alias.');
+    }
+  }
 });

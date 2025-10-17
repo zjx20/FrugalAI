@@ -13,9 +13,10 @@ datasource db {
 }
 
 model User {
-  id    Int     @id @default(autoincrement())
-  token String  @unique
-  name  String?
+  id           Int     @id @default(autoincrement())
+  token        String  @unique
+  name         String?
+  modelAliases Json? // JSON object mapping user-defined aliases to model names (e.g., {"my-alias": "provider/model1,provider/model2"})
 
   keys         ApiKey[]
   accessTokens AccessToken[]
