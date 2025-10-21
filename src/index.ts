@@ -8,6 +8,7 @@ import { ApiKeyThrottleHelper } from './core/throttle-helper';
 import { AnthropicRequest, ApiKeyWithProvider, Credential, GeminiRequest, OpenAIRequest, Protocol, ProviderHandler, RequestContext, ThrottledError, UserWithKeys } from './core/types';
 import { providerHandlerMap } from './providers/providers';
 import { MessageCountTokensParams } from '@anthropic-ai/sdk/resources';
+import { createFinishReasonRemovalTransform } from './utils/sse-transform';
 
 const MAX_LOG_BODY_LENGTH = 16 * 1024; // 16KB
 
@@ -359,10 +360,35 @@ app.post('/v1/chat/completions', async (c) => {
 		request: c.req.raw,
 	};
 	const openAIRequestBody: OpenAIRequest = c.get('parsedBody');
-	return getApiKeysAndHandleRequest(c, Protocol.OpenAI, openAIRequestBody.model, async (handler, adjustedModelId, cred) => {
+
+	// Check if we should remove empty finish_reason fields
+	const shouldRemoveEmptyFinishReason = c.req.query('remove-empty-finish-reason') !== undefined;
+
+	const response = await getApiKeysAndHandleRequest(c, Protocol.OpenAI, openAIRequestBody.model, async (handler, adjustedModelId, cred) => {
 		openAIRequestBody.model = adjustedModelId;
 		return handler.handleOpenAIRequest(ctx, openAIRequestBody, cred);
 	});
+
+	// This feature addresses a compatibility issue with some clients (e.g., codex) that
+	// prematurely terminate SSE stream processing when a non-null `finish_reason` is encountered.
+	// Certain providers (e.g., CodeBuddy) send `finish_reason: ""` in intermediate chunks, causing such clients
+	// to stop processing, which appears as if no response was generated in the UI.
+	// See: https://github.com/openai/codex/blob/42d5c35020fb06f17578f2e5a98d21e5ef81427f/codex-rs/core/src/chat_completions.rs#L583-L649
+	if (shouldRemoveEmptyFinishReason && response.ok) {
+		const contentType = response.headers.get('Content-Type');
+		if (contentType && contentType.includes('text/event-stream') && response.body) {
+			const transformStream = createFinishReasonRemovalTransform();
+			const transformedBody = response.body.pipeThrough(transformStream);
+
+			return new Response(transformedBody, {
+				status: response.status,
+				statusText: response.statusText,
+				headers: response.headers,
+			});
+		}
+	}
+
+	return response;
 });
 
 app.post('/v1beta/models/:modelAndMethod{(([a-zA-Z0-9_-]+\\/)?[a-zA-Z0-9.-]+(\\$[a-zA-Z0-9.-]+)?(,([a-zA-Z0-9_-]+\\/)?[a-zA-Z0-9.-]+(\\$[a-zA-Z0-9.-]+)?)*):[a-zA-Z]+}', async (c) => {
