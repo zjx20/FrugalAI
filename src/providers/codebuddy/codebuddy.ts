@@ -17,7 +17,7 @@ interface codeBuddyAuthCredential {
 	domain: string
 }
 
-const codeBuddyVersion = '1.1.4';
+const codeBuddyVersion = '1.16.0';
 const userAgent = `CLI/${codeBuddyVersion} CodeBuddy/${codeBuddyVersion}`;
 
 class CodeBuddyHandler implements ProviderHandler {

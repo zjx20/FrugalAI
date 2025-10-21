@@ -1,5 +1,6 @@
 import { RequestContext, Protocol, ProviderHandler, OpenAIRequest, GeminiRequest, AnthropicRequest, Credential, ThrottledError, ApiKeyWithProvider, GeminiRequestBody } from "../../core/types";
 import { convertOpenAiRequestToGemini, convertGeminiResponseToOpenAi, GeminiToOpenAiSseTransformer } from "../../adapters/openai-gemini";
+import { convertAnthropicRequestToOpenAI, convertOpenAIResponseToAnthropic } from "../../adapters/anthropic-openai";
 
 const GOOGLE_AI_STUDIO_ENDPOINT = 'https://generativelanguage.googleapis.com';
 const GOOGLE_AI_STUDIO_API_VERSION = 'v1beta';
@@ -7,7 +8,7 @@ const GOOGLE_AI_STUDIO_API_VERSION = 'v1beta';
 
 class GoogleAIStudioHandler implements ProviderHandler {
 	supportedProtocols(): Protocol[] {
-		return [Protocol.OpenAI, Protocol.Gemini];
+		return [Protocol.OpenAI, Protocol.Gemini, Protocol.Anthropic];
 	}
 
 	canAccessModelWithKey(apiKey: ApiKeyWithProvider, model: string): boolean {
@@ -138,7 +139,27 @@ class GoogleAIStudioHandler implements ProviderHandler {
 	}
 
 	async handleAnthropicRequest(ctx: RequestContext, request: AnthropicRequest, cred: Credential): Promise<Response | Error> {
-		return new Error("Method not implemented. Anthropic protocol is not supported.");
+		const openaiReq = convertAnthropicRequestToOpenAI(request);
+
+		// Reuse the existing OpenAI request handler
+		const response = await this.handleOpenAIRequest(ctx, openaiReq, cred);
+
+		// If an error occurred, return it directly
+		if (response instanceof Error) {
+			return response;
+		}
+
+		// If no success, return it directly
+		if (!response.ok) {
+			return response;
+		}
+
+		// Convert OpenAI response back to Anthropic format
+		return await convertOpenAIResponseToAnthropic(
+			request.stream || false,
+			response,
+			ctx.executionCtx
+		);
 	}
 }
 

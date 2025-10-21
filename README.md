@@ -346,6 +346,23 @@ curl -X POST "<your_endpoint_url>/v1beta/models/GEMINI_CODE_ASSIST/gemini-2.5-fl
          }'
 ```
 
+**Anthropic-Compatible Endpoint:**
+
+```bash
+curl -X POST "<your_endpoint_url>/v1/messages" \
+     -H "x-api-key: <YOUR_TOKEN>" \
+     -H "anthropic-version: 2023-06-01" \
+     -H "Content-Type: application/json" \
+     -d '{
+           "model": "gemini-2.5-flash",
+           "max_tokens": 1024,
+           "messages": [{
+             "role": "user",
+             "content": "Hello, tell me about yourself."
+           }]
+         }'
+```
+
 Replace `<your_endpoint_url>` and `<YOUR_TOKEN>` with your actual information. `<YOUR_TOKEN>` can be either your User Token (sk-...) or an Access Token (sk-api-...).
 
 ### 2. Use in Other Tools
@@ -372,7 +389,9 @@ FrugalAI can be integrated with various AI coding assistants that support custom
 
 ```bash
 # Set the base URL to point to your FrugalAI service (without "v1" path)
-export ANTHROPIC_BASE_URL="http://localhost:8787/"
+# For local development: http://localhost:8787/
+# For deployed service: https://your-worker-name.your-subdomain.workers.dev/
+export ANTHROPIC_BASE_URL="<your_endpoint_url>"
 
 # Configure model selection (choose your preferred models)
 export ANTHROPIC_MODEL="gemini-2.5-pro"
@@ -387,7 +406,7 @@ export ANTHROPIC_AUTH_TOKEN="sk-xxx"
 claude
 ```
 
-Replace `sk-xxx` with your actual FrugalAI token.
+Replace `<your_endpoint_url>` with your FrugalAI deployment URL (without trailing "v1"), and `sk-xxx` with your actual FrugalAI token.
 
 ### Using with Codex
 
@@ -399,15 +418,19 @@ Add a new `model_provider` configuration to your `~/.codex/config.toml` file:
 
 ```toml
 model = "gpt-5-codex"
-model_provider = "frugalai-dev"
+model_provider = "frugalai"
 
-[model_providers.frugalai-dev]
-name = "FrugalAI Dev"
-base_url = "http://localhost:8787/v1"
+[model_providers.frugalai]
+name = "FrugalAI"
+# For local development: http://localhost:8787/v1
+# For deployed service: https://your-worker-name.your-subdomain.workers.dev/v1
+base_url = "<your_endpoint_url>/v1"
 env_key = "FRUGALAI_API_KEY"
 wire_api = "chat"
 query_params = { "remove-empty-finish-reason" = "true" }
 ```
+
+Replace `<your_endpoint_url>` with your FrugalAI deployment URL (note the "/v1" suffix is required for Codex).
 
 This configuration tells Codex to use FrugalAI as the model provider and sets up the necessary API parameters.
 

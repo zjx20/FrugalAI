@@ -362,7 +362,7 @@ app.post('/v1/chat/completions', async (c) => {
 	const openAIRequestBody: OpenAIRequest = c.get('parsedBody');
 
 	// Check if we should remove empty finish_reason fields
-	const shouldRemoveEmptyFinishReason = c.req.query('remove-empty-finish-reason') !== undefined;
+	const shouldRemoveEmptyFinishReason = c.req.query('remove-empty-finish-reason') === 'true';
 
 	const response = await getApiKeysAndHandleRequest(c, Protocol.OpenAI, openAIRequestBody.model, async (handler, adjustedModelId, cred) => {
 		openAIRequestBody.model = adjustedModelId;
