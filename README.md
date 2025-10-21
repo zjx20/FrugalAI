@@ -362,6 +362,71 @@ Once configured, the tool will communicate with this proxy, allowing you to use 
 
 ---
 
+## Integration with Other Tools
+
+FrugalAI can be integrated with various AI coding assistants that support custom API endpoints. Here are some examples:
+
+### Using with Claude Code
+
+[Claude Code](https://github.com/anthropics/claude-code) is a command-line tool for interacting with Claude. You can configure it to use FrugalAI by setting several environment variables:
+
+```bash
+# Set the base URL to point to your FrugalAI service (without "v1" path)
+export ANTHROPIC_BASE_URL="http://localhost:8787/"
+
+# Configure model selection (choose your preferred models)
+export ANTHROPIC_MODEL="gemini-2.5-pro"
+export ANTHROPIC_DEFAULT_HAIKU_MODEL="gemini-2.5-flash"
+export ANTHROPIC_DEFAULT_SONNET_MODEL="gemini-2.5-pro"
+export ANTHROPIC_DEFAULT_OPUS_MODEL="gemini-2.5-pro"
+
+# Set your FrugalAI API key (User Token or Access Token)
+export ANTHROPIC_AUTH_TOKEN="sk-xxx"
+
+# Run claude
+claude
+```
+
+Replace `sk-xxx` with your actual FrugalAI token.
+
+### Using with Codex
+
+[Codex](https://github.com/openai/codex) is an AI coding assistant from OpenAI. To use it with FrugalAI:
+
+#### Step 1: Configure Codex
+
+Add a new `model_provider` configuration to your `~/.codex/config.toml` file:
+
+```toml
+model = "gpt-5-codex"
+model_provider = "frugalai-dev"
+
+[model_providers.frugalai-dev]
+name = "FrugalAI Dev"
+base_url = "http://localhost:8787/v1"
+env_key = "FRUGALAI_API_KEY"
+wire_api = "chat"
+query_params = { "remove-empty-finish-reason" = "true" }
+```
+
+This configuration tells Codex to use FrugalAI as the model provider and sets up the necessary API parameters.
+
+#### Step 2: Set Environment Variable and Run
+
+Before starting Codex, set your FrugalAI API key as an environment variable:
+
+```bash
+# Set your FrugalAI API key (User Token or Access Token)
+export FRUGALAI_API_KEY="sk-xxx"
+
+# Run codex
+codex
+```
+
+Replace `sk-xxx` with your actual FrugalAI token.
+
+---
+
 ## Database Development with Prisma and Cloudflare D1
 
 This project uses [Prisma](https://www.prisma.io/) as its ORM to interact with a [Cloudflare D1](https://developers.cloudflare.com/d1/) database. This section outlines the correct development workflow for modifying the database schema and managing migrations, following Cloudflare's recommended practices.
