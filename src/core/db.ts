@@ -343,4 +343,24 @@ export class Database {
       data: { modelAliases: modelAliases === null ? Prisma.JsonNull : modelAliases }
     });
   }
+
+  /**
+   * Updates extended fields of an API key (baseUrl and availableModels).
+   * @param id The ID of the API key.
+   * @param data The data to update (baseUrl and/or availableModels).
+   * @returns A promise that resolves to the updated API key object.
+   */
+  async updateApiKeyExtendedFields(id: number, data: { baseUrl?: string; availableModels?: string[] | null }): Promise<ApiKey> {
+    const updateData: any = {};
+    if (data.baseUrl !== undefined) {
+      updateData.baseUrl = data.baseUrl;
+    }
+    if (data.availableModels !== undefined) {
+      updateData.availableModels = data.availableModels === null ? Prisma.JsonNull : data.availableModels;
+    }
+    return this.prisma.apiKey.update({
+      where: { id },
+      data: updateData
+    });
+  }
 }

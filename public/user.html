@@ -18,6 +18,27 @@
     #api-keys-list, #access-tokens-list { list-style-type: none; padding: 0; }
     #api-keys-list li, #access-tokens-list li { display: flex; justify-content: space-between; align-items: center; padding: 0.5em; border-bottom: 1px solid #eee; }
     .hidden { display: none; }
+    .form-grid {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 1em;
+      margin-top: 1em;
+    }
+    .form-grid input, .form-grid select, .form-grid textarea, .form-grid button {
+      width: 100%;
+      box-sizing: border-box;
+    }
+    .form-grid .grid-col-2 {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 1em;
+    }
+    .nested-fields {
+      border: 1px solid #eee;
+      padding: 1em;
+      border-radius: 5px;
+      margin-top: 0;
+    }
   </style>
 </head>
 <body>
@@ -61,10 +82,18 @@
       <p id="no-keys-message" class="hidden">You don't have any API keys yet.</p>
 
       <h3>Create New API Key</h3>
-      <select id="provider-select"></select>
-      <input type="text" id="key-data-input" placeholder="Enter your key from the provider">
-      <input type="text" id="key-notes-input" placeholder="Notes (e.g., 'My personal account')">
-      <button id="create-key-button">Create Key</button>
+      <div class="form-grid">
+        <div class="grid-col-2">
+          <select id="provider-select"></select>
+          <input type="text" id="key-notes-input" placeholder="Notes (e.g., 'My personal account')">
+        </div>
+        <input type="text" id="key-data-input" placeholder="Enter your key from the provider">
+        <div id="openai-fields" class="hidden nested-fields">
+          <input type="text" id="base-url-input" placeholder="Base URL (optional, defaults to OpenAI)">
+          <textarea id="available-models-input" placeholder="Available Models (one per line)" rows="3" style="margin-top: 1em;"></textarea>
+        </div>
+        <button id="create-key-button">Create Key</button>
+      </div>
 
       <hr style="margin: 2em 0;">
 
@@ -74,8 +103,12 @@
       <p id="no-access-tokens-message" class="hidden">You don't have any access tokens yet.</p>
 
       <h4>Create New Access Token</h4>
-      <input type="text" id="access-token-name-input" placeholder="Token name (optional, e.g., 'My App Token')">
-      <button id="create-access-token-button">Create Access Token</button>
+      <div class="form-grid">
+        <div class="grid-col-2">
+          <input type="text" id="access-token-name-input" placeholder="Token name (optional, e.g., 'My App Token')">
+          <button id="create-access-token-button">Create Access Token</button>
+        </div>
+      </div>
 
       <hr style="margin: 2em 0;">
 
@@ -85,9 +118,13 @@
       <p id="no-aliases-message" class="hidden">You don't have any model aliases yet.</p>
 
       <h4>Create New Model Alias</h4>
-      <input type="text" id="alias-name-input" placeholder="Alias name (e.g., 'my-model')">
-      <input type="text" id="alias-models-input" placeholder="Target models (e.g., 'provider/model1,model2')">
-      <button id="create-alias-button">Create Alias</button>
+      <div class="form-grid">
+        <div class="grid-col-2">
+          <input type="text" id="alias-name-input" placeholder="Alias name (e.g., 'my-model')">
+          <input type="text" id="alias-models-input" placeholder="Target models (e.g., 'provider/model1,model2')">
+        </div>
+        <button id="create-alias-button">Create Alias</button>
+      </div>
       <p style="font-size: 0.9em; color: #666; margin-top: 0.5em;">
         Note: The target models support the same format as API requests, including provider prefixes and comma-separated fallback models.
       </p>
@@ -106,6 +143,13 @@
       <br><br>
       <label for="edit-key-notes-input">Notes:</label>
       <input type="text" id="edit-key-notes-input" placeholder="Notes (e.g., 'My personal account')">
+      <div id="edit-openai-fields" class="hidden" style="margin-top: 1em;">
+        <label for="edit-base-url-input">Base URL:</label>
+        <input type="text" id="edit-base-url-input" placeholder="Base URL (optional)">
+        <br><br>
+        <label for="edit-available-models-input">Available Models (one per line):</label>
+        <textarea id="edit-available-models-input" rows="4"></textarea>
+      </div>
       <br><br>
       <button id="save-key-button">Save Changes</button>
     </div>

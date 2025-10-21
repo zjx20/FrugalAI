@@ -516,8 +516,8 @@ function convertAnthropicMessagesToOpenAI(messages: MessageParam[]): ChatComplet
 			if (textParts.length > 0 || toolCalls.length > 0) {
 				openaiMsgs.push({
 					role: 'assistant',
-					content: textParts,
-					tool_calls: toolCalls,
+					content: textParts.length > 0 ? textParts : '',
+					tool_calls: toolCalls.length > 0 ? toolCalls : undefined,
 				});
 			}
 			if ((contentParts.length - textParts.length) > 0) {

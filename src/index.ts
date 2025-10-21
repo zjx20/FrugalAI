@@ -149,19 +149,24 @@ app.get('/available-models', proxyAuth, (c) => {
 	const user = c.get('user');
 
 	const providerModelsMap = new Map<string, Set<string>>();
+
 	for (const key of user.keys) {
-		if (key.permanentlyFailed || !key.provider.models) {
+		if (key.permanentlyFailed) {
 			continue;
 		}
 
 		const providerName = key.providerName;
-		const models = Array.isArray(key.provider.models) ? (key.provider.models as string[]) : [];
-
 		if (!providerModelsMap.has(providerName)) {
-			providerModelsMap.set(providerName, new Set());
+			providerModelsMap.set(providerName, new Set<string>());
 		}
 
-		for (const model of models) {
+		const providerModels = Array.isArray(key.provider.models) ? (key.provider.models as string[]) : [];
+		for (const model of providerModels) {
+			providerModelsMap.get(providerName)!.add(model);
+		}
+
+		const keyModels = Array.isArray(key.availableModels) ? (key.availableModels as string[]) : [];
+		for (const model of keyModels) {
 			providerModelsMap.get(providerName)!.add(model);
 		}
 	}
@@ -208,11 +213,22 @@ function matchModel(reqModelId: string, reqAlias: string | undefined, model: str
 }
 
 function resolveModelIds(reqModelId: string, reqAlias: string | undefined, key: ApiKeyWithProvider, handler: ProviderHandler): string[] {
-	const models = key.provider.models as string[] || [];
+	// Priority 1: Use per-key availableModels if configured
+	const perKeyModels = key.availableModels;
+	let modelsToSearch: string[];
+
+	if (perKeyModels && Array.isArray(perKeyModels) && perKeyModels.length > 0) {
+		// Use per-key model list
+		modelsToSearch = perKeyModels as string[];
+	} else {
+		// Priority 2: Fall back to provider-level models
+		modelsToSearch = key.provider.models as string[] || [];
+	}
+
 	const result = [];
 	const exists = new Set<string>();
-	for (const model of models) {
-		const {matched, modelId} = matchModel(reqModelId, reqAlias, model);
+	for (const model of modelsToSearch) {
+		const {matched, modelId} = matchModel(reqModelId, reqAlias, key.providerName + '/' + model);
 		if (matched && !exists.has(modelId)) {
 			if (handler.canAccessModelWithKey(key, modelId)) {
 				result.push(modelId);
@@ -391,7 +407,7 @@ app.post('/v1/chat/completions', async (c) => {
 	return response;
 });
 
-app.post('/v1beta/models/:modelAndMethod{(([a-zA-Z0-9_-]+\\/)?[a-zA-Z0-9.-]+(\\$[a-zA-Z0-9.-]+)?(,([a-zA-Z0-9_-]+\\/)?[a-zA-Z0-9.-]+(\\$[a-zA-Z0-9.-]+)?)*):[a-zA-Z]+}', async (c) => {
+app.post('/v1beta/models/:modelAndMethod{(([a-zA-Z0-9_-]+\\/)*[a-zA-Z0-9.-]+(\\$[a-zA-Z0-9.-]+)?(,([a-zA-Z0-9_-]+\\/)*[a-zA-Z0-9.-]+(\\$[a-zA-Z0-9.-]+)?)*):[a-zA-Z]+}', async (c) => {
 	const ctx: RequestContext = {
 		executionCtx: c.executionCtx,
 		request: c.req.raw,

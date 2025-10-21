@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-FrugalAI is a Cloudflare Worker that acts as an API proxy for multiple LLM providers (Google Gemini Code Assist, CodeBuddy, Google AI Studio). It exposes OpenAI-compatible, Gemini-compatible, and Anthropic-compatible API interfaces, enabling free/lower-cost access to Gemini models by internally translating requests to provider-specific formats.
+FrugalAI is a Cloudflare Worker that acts as an API proxy for multiple LLM providers (Google Gemini Code Assist, CodeBuddy, Google AI Studio, and any OpenAI-compatible service). It exposes OpenAI-compatible, Gemini-compatible, and Anthropic-compatible API interfaces, enabling free/lower-cost access to various models by internally translating requests to provider-specific formats.
 
 The system uses Cloudflare D1 database (via Prisma ORM) for data persistence, replacing the previous KV-based storage. It supports multi-user management, dual-token authentication (User Tokens and Access Tokens), API key rotation for rate limit handling, and provider-level throttling with exponential backoff.
 
@@ -134,13 +134,14 @@ Provider implementations are registered in `src/providers/providers.ts` (`provid
 **Models** (`prisma/schema.prisma`):
 - **User**: Has token, name, modelAliases (JSON), owns ApiKeys and AccessTokens
 - **AccessToken**: API-only tokens (sk-api-*) for limited access
-- **ApiKey**: Stores provider credentials, throttle data, permanent failure flag
+- **ApiKey**: Stores provider credentials, throttle data, permanent failure flag, and optional `baseUrl` and `availableModels`.
 - **Provider**: Provider-level config (throttleMode, model list, backoff bounds)
 
 **JSON fields**:
 - `User.modelAliases`: User-defined model alias mappings (e.g., `{"gpt-4": "GEMINI_CODE_ASSIST/gemini-2.5-pro,gemini-2.5-flash"}`)
 - `ApiKey.keyData`: Provider-specific credential data (Base64 or JSON object)
 - `ApiKey.throttleData`: Map of throttle buckets (`{[model]: ThrottleData}` or `{_global_: ThrottleData}`)
+- `ApiKey.availableModels`: Per-key override for the list of available models (JSON array).
 - `Provider.models`: Array of model names/aliases (e.g., `["gemini-2.5-flash", "gemini-2.5-pro$alias"]`)
 
 ### Dual Token System
@@ -162,6 +163,7 @@ Provider implementations are registered in `src/providers/providers.ts` (`provid
    - **GEMINI_CODE_ASSIST**: Run `node authorize.mjs` to get Base64 encoded OAuth credentials
    - **CODE_BUDDY** (macOS only): Install CLI, login, extract key via `cat "$HOME/Library/Application Support/CodeBuddyExtension/Data/Public/auth/Tencent-Cloud.coding-copilot.info" | base64`
    - **GOOGLE_AI_STUDIO**: Get plain text API key from https://aistudio.google.com/api-keys (starts with "AIza...")
+   - **OPEN_AI**: Get API key from the service provider (e.g., OpenAI dashboard). Optionally, provide a custom `baseUrl` and a list of `availableModels`.
 3. **API Key Creation**: Login with User Token, select provider, paste credential string
 4. **Access Token Creation**: Create API-only tokens (sk-api-*) for limited access
 5. **Model Alias Creation** (Optional): Create custom aliases for fixed model names in AI tools
@@ -169,7 +171,8 @@ Provider implementations are registered in `src/providers/providers.ts` (`provid
 **API endpoints** (`src/user.ts`):
 - `POST /api/users` - Register user
 - `GET /api/keys` - List API keys
-- `POST /api/keys` - Add provider key (accepts Base64 for CODE_ASSIST/CODE_BUDDY, plain text for AI_STUDIO)
+- `POST /api/keys` - Add provider key. Can include `baseUrl` and `availableModels`.
+- `PUT /api/key` - Update key details, including `baseUrl` and `availableModels`.
 - `DELETE /api/keys/:id` - Delete key
 - Access token CRUD operations
 - `GET /api/user/model-aliases` - Get user's model aliases

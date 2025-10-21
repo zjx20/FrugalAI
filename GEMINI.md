@@ -30,7 +30,8 @@ The new workflow is entirely centered around the web UI and supports multiple pr
     -   **`GEMINI_CODE_ASSIST`**: Run `node authorize.mjs` to handle the Google OAuth flow and output a Base64 encoded credential string.
     -   **`CODE_BUDDY`**: Install the CodeBuddy CLI tool from https://www.codebuddy.ai/cli, complete the login process, then extract the authentication key using: `cat "$HOME/Library/Application Support/CodeBuddyExtension/Data/Public/auth/Tencent-Cloud.coding-copilot.info" | base64` (macOS only; other systems TBD).
     -   **`GOOGLE_AI_STUDIO`**: Visit https://aistudio.google.com/api-keys, sign in with a Google account, create an API key, and copy the plain text API key (starts with "AIza...").
-3.  **API Key Creation**: The user logs into the web UI with their User Token, selects the appropriate provider (`GEMINI_CODE_ASSIST`, `CODE_BUDDY`, or `GOOGLE_AI_STUDIO`), and pastes the credential string from the previous step into the "key" field to create a new `ApiKey` record in the database. Note that `GOOGLE_AI_STUDIO` uses plain text API keys directly, while other providers use Base64 encoded credential strings.
+    -   **`OPEN_AI`**: Obtain an API key from any OpenAI-compatible service.
+3.  **API Key Creation**: The user logs into the web UI with their User Token, selects the appropriate provider (`GEMINI_CODE_ASSIST`, `CODE_BUDDY`, `GOOGLE_AI_STUDIO`, or `OPEN_AI`), and pastes the credential string. For the `OPEN_AI` provider, the user can also specify a custom `baseUrl` and a list of `availableModels`.
 
 ### 3.2. Access Token System (API-only Keys)
 
@@ -131,6 +132,13 @@ This feature enables compatibility with tools that have hard-coded model names w
 -   **Token Validation**: Both token types are validated through the same authentication middleware but with different permission levels
 
 ### 3.6. Model Matching Logic
+
+The system uses a two-tiered approach for resolving which models an API key can use:
+
+1.  **Per-Key `availableModels`**: The `ApiKey` table has an `availableModels` JSON field. If this field is populated for a given key, it is used as the definitive list of supported models, overriding any provider-level settings. This is the primary mechanism for the `OPEN_AI` provider.
+2.  **Provider-Level `models`**: If an `ApiKey`'s `availableModels` field is empty or null, the system falls back to the `models` list defined on the `Provider` table.
+
+This allows for both centralized model management by an administrator and flexible, per-key customization by the user.
 
 The `matchModel()` function in `src/index.ts` implements flexible model matching to support various use cases:
 

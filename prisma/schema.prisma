@@ -33,16 +33,18 @@ model AccessToken {
 }
 
 model ApiKey {
-  id           Int      @id @default(autoincrement())
-  provider     Provider @relation(fields: [providerName], references: [name])
-  providerName ProviderName
-  owner        User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
-  ownerId      Int
-  keyData      Json
-  throttleData Json
-  notes        String?
-  permanentlyFailed Boolean @default(false)
-  paused       Boolean  @default(false)
+  id                Int      @id @default(autoincrement())
+  provider          Provider @relation(fields: [providerName], references: [name])
+  providerName      ProviderName
+  owner             User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  ownerId           Int
+  keyData           Json
+  throttleData      Json
+  notes             String?
+  permanentlyFailed Boolean  @default(false)
+  paused            Boolean  @default(false)
+  baseUrl           String?  // Custom endpoint URL (optional, used by OPEN_AI provider)
+  availableModels   Json?    // Per-key model list (optional, JSON array)
 }
 
 enum ThrottleMode {
@@ -58,6 +60,7 @@ enum ProviderName {
 	GEMINI_CODE_ASSIST
 	CODE_BUDDY
 	GOOGLE_AI_STUDIO
+	OPEN_AI
 }
 
 model Provider {

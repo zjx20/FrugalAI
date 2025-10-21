@@ -199,16 +199,23 @@ To obtain credentials for the `GOOGLE_AI_STUDIO` provider:
 
 **Note:** Unlike other providers that require Base64 encoded credentials, the `GOOGLE_AI_STUDIO` provider uses the plain text API key directly.
 
+#### `OPEN_AI` Provider
+
+The `OPEN_AI` provider allows you to connect to any service that is compatible with the OpenAI API, including the official OpenAI service or other third-party services.
+
+1.  **API Key**: Obtain the API key from your service provider (e.g., from the [OpenAI dashboard](https://platform.openai.com/api-keys)). This is typically a string prefixed with `sk-`.
+2.  **Base URL** (Optional): If you are using a third-party service, enter its endpoint URL here (e.g., `https://api.example.com/v1`). If left blank, it will default to the official OpenAI endpoint (`https://api.openai.com/v1`).
+3.  **Available Models**: You must specify a list of models supported by this key. This is a JSON array of strings (e.g., `["gpt-4o", "gpt-4-turbo"]`).
+
 ### Step 3: Add Your Credentials as an API Key
 
 Now, add the credential(s) you just obtained to your user account via the web UI.
 
 1.  Go back to the user management page. If you are not already logged in, paste your **User Token** from Step 1 into the login field and click "Login".
 2.  In the "Create New API Key" section:
-    -   Select the appropriate provider from the dropdown (`GEMINI_CODE_ASSIST`, `CODE_BUDDY`, or `GOOGLE_AI_STUDIO`).
-    -   Paste the credential string from Step 2 into the "Enter your key from the provider" field:
-        -   For `GEMINI_CODE_ASSIST` and `CODE_BUDDY`: Use the **Base64 encoded credential string**
-        -   For `GOOGLE_AI_STUDIO`: Use the **plain text API key** directly
+    -   Select the appropriate provider from the dropdown (`GEMINI_CODE_ASSIST`, `CODE_BUDDY`, `GOOGLE_AI_STUDIO`, or `OPEN_AI`).
+    -   Paste the credential string from Step 2 into the "Enter your key from the provider" field.
+    -   For the `OPEN_AI` provider, you can also specify an optional **Base URL** and a list of **Available Models**.
     -   Optionally, add a note to remember which account this key corresponds to.
     -   Click "Create Key".
 

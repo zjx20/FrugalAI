@@ -69,15 +69,31 @@ app.get('/user/keys', (c) => {
 app.post('/user/keys', async (c) => {
 	const db = c.get('db');
 	const user = c.get('user');
-	const { providerName, keyData, notes } = (await c.req.json()) as { providerName: string; keyData: any, notes?: string };
+	const { providerName, keyData, notes, baseUrl, availableModels } = (await c.req.json()) as {
+		providerName: string;
+		keyData: any;
+		notes?: string;
+		baseUrl?: string;
+		availableModels?: string[];
+	};
 	if (!providerName || !keyData) {
 		return c.json({ error: 'Missing providerName or keyData' }, 400);
 	}
 	if (!Object.values(ProviderName).includes(providerName as ProviderName)) {
 		return c.json({ error: 'Unsupported provider' }, 400);
 	}
+
+	// Create the API key first
 	const apiKey = await db.createApiKey(user.id, providerName as ProviderName, keyData, notes);
-	return c.json(apiKey, 201);
+
+	// Update baseUrl and availableModels if provided
+	if (baseUrl !== undefined || availableModels !== undefined) {
+		await db.updateApiKeyExtendedFields(apiKey.id, { baseUrl, availableModels });
+	}
+
+	// Fetch and return the complete key with provider info
+	const completeKey = await db.getApiKeyById(apiKey.id);
+	return c.json(completeKey, 201);
 });
 
 app.delete('/user/key', async (c) => {
@@ -97,18 +113,34 @@ app.put('/user/key', async (c) => {
 	const db = c.get('db');
 	const user = c.get('user');
 
-	const { id, keyData, notes } = (await c.req.json()) as { id: number; keyData?: any; notes?: string };
+	const { id, keyData, notes, baseUrl, availableModels } = (await c.req.json()) as {
+		id: number;
+		keyData?: any;
+		notes?: string;
+		baseUrl?: string;
+		availableModels?: string[] | null;
+	};
 	const keyToUpdate = await db.getApiKeyById(id);
 
 	if (!keyToUpdate || keyToUpdate.ownerId !== user.id) {
 		return c.json({ error: 'API Key not found or you do not have permission' }, 404);
 	}
 
-	const updatedKey = await db.updateApiKeyDetails(id, {
-		keyData: keyData || undefined,
-		notes: notes || undefined,
-	});
+	// Update basic fields
+	if (keyData !== undefined || notes !== undefined) {
+		await db.updateApiKeyDetails(id, {
+			keyData: keyData || undefined,
+			notes: notes || undefined,
+		});
+	}
 
+	// Update baseUrl and/or availableModels if provided
+	if (baseUrl !== undefined || availableModels !== undefined) {
+		await db.updateApiKeyExtendedFields(id, { baseUrl, availableModels });
+	}
+
+	// Fetch and return the complete updated key
+	const updatedKey = await db.getApiKeyById(id);
 	return c.json(updatedKey);
 });
 

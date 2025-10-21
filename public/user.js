@@ -24,6 +24,10 @@ document.addEventListener('DOMContentLoaded', () => {
   const createKeyButton = document.getElementById('create-key-button');
   const logoutButton = document.getElementById('logout-button');
 
+  const openaiFields = document.getElementById('openai-fields');
+  const baseUrlInput = document.getElementById('base-url-input');
+  const availableModelsInput = document.getElementById('available-models-input');
+
   const accessTokensList = document.getElementById('access-tokens-list');
   const noAccessTokensMessage = document.getElementById('no-access-tokens-message');
   const accessTokenNameInput = document.getElementById('access-token-name-input');
@@ -36,6 +40,10 @@ document.addEventListener('DOMContentLoaded', () => {
   const editKeyNotesInput = document.getElementById('edit-key-notes-input');
   const saveKeyButton = document.getElementById('save-key-button');
   const closeModalButton = editModal.querySelector('.close-button');
+
+  const editOpenaiFields = document.getElementById('edit-openai-fields');
+  const editBaseUrlInput = document.getElementById('edit-base-url-input');
+  const editAvailableModelsInput = document.getElementById('edit-available-models-input');
 
   let apiToken = localStorage.getItem('apiToken');
 
@@ -122,10 +130,21 @@ document.addEventListener('DOMContentLoaded', () => {
     if (response.ok) {
       const providers = await response.json();
       providerSelect.innerHTML = providers.map(p => `<option value="${p}">${p}</option>`).join('');
+      toggleOpenAIFields();
     } else {
       console.error('Failed to load providers');
     }
   }
+
+  function toggleOpenAIFields() {
+    if (providerSelect.value === 'OPEN_AI') {
+      openaiFields.classList.remove('hidden');
+    } else {
+      openaiFields.classList.add('hidden');
+    }
+  }
+
+  providerSelect.addEventListener('change', toggleOpenAIFields);
 
   function getStatusIndicator(key) {
     const now = Date.now();
@@ -298,17 +317,31 @@ document.addEventListener('DOMContentLoaded', () => {
     const providerName = providerSelect.value;
     const keyData = { key: keyDataInput.value };
     const notes = keyNotesInput.value;
+
+    const body = {
+      providerName,
+      keyData,
+      notes: notes || undefined
+    };
+
+    if (providerName === 'OPEN_AI') {
+      body.baseUrl = baseUrlInput.value.trim() || undefined;
+      body.availableModels = availableModelsInput.value.split('\n').map(m => m.trim()).filter(m => m);
+    }
+
     const response = await fetch('/api/user/keys', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${apiToken}`,
       },
-      body: JSON.stringify({ providerName, keyData, notes: notes || undefined }),
+      body: JSON.stringify(body),
     });
     if (response.status === 201) {
       keyDataInput.value = '';
       keyNotesInput.value = '';
+      baseUrlInput.value = '';
+      availableModelsInput.value = '';
       loadApiKeys();
     } else {
       alert('Failed to create API key.');
@@ -337,6 +370,15 @@ document.addEventListener('DOMContentLoaded', () => {
     editKeyProvider.textContent = key.providerName;
     editKeyDataInput.value = (key.keyData && key.keyData.key) ? key.keyData.key : '';
     editKeyNotesInput.value = key.notes || '';
+
+    if (key.providerName === 'OPEN_AI') {
+      editBaseUrlInput.value = key.baseUrl || '';
+      editAvailableModelsInput.value = (key.availableModels || []).join('\n');
+      editOpenaiFields.classList.remove('hidden');
+    } else {
+      editOpenaiFields.classList.add('hidden');
+    }
+
     editModal.classList.remove('hidden');
   }
 
@@ -356,13 +398,24 @@ document.addEventListener('DOMContentLoaded', () => {
     const keyData = { key: editKeyDataInput.value };
     const notes = editKeyNotesInput.value;
 
+    const body = {
+      id,
+      keyData,
+      notes: notes || undefined
+    };
+
+    if (editKeyProvider.textContent === 'OPEN_AI') {
+      body.baseUrl = editBaseUrlInput.value.trim() || undefined;
+      body.availableModels = editAvailableModelsInput.value.split('\n').map(m => m.trim()).filter(m => m);
+    }
+
     const response = await fetch(`/api/user/key`, {
       method: 'PUT',
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${apiToken}`,
       },
-      body: JSON.stringify({ id, keyData, notes: notes || undefined }),
+      body: JSON.stringify(body),
     });
 
     if (response.ok) {

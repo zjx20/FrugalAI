@@ -907,66 +907,78 @@
 
                 const reader = response.body.getReader();
                 const decoder = new TextDecoder();
+                let buffer = '';
 
                 while (true) {
                     const { done, value } = await reader.read();
                     if (done) break;
 
-                    const chunk = decoder.decode(value, { stream: true });
-                    const lines = chunk.split('\n\n');
+                    buffer += decoder.decode(value, { stream: true });
+                    const lines = buffer.split('\n');
+                    buffer = lines.pop() || ''; // Keep incomplete line in buffer
 
                     for (const line of lines) {
-                        if (line.startsWith('data: ')) {
-                            const dataStr = line.substring(6);
-                            if (dataStr.trim() === '[DONE]') break;
-                            try {
-                                const data = JSON.parse(dataStr);
-                                const delta = data.choices && data.choices[0] && data.choices[0].delta;
-                                if (delta) {
-                                    let reasoningContainer = contentDiv.querySelector('.reasoning-content');
+                        if (line.trim() === '' || !line.startsWith('data:')) continue;
 
-                                    // Handle reasoning_content
-                                    if (delta.reasoning_content) {
-                                        if (!reasoningContainer) {
-                                            reasoningContainer = document.createElement('details');
-                                            reasoningContainer.className = 'reasoning-content';
-                                            reasoningContainer.open = true;
-                                            reasoningContainer.innerHTML = `<summary>Thoughts</summary><div class="reasoning-text"></div>`;
-                                            contentDiv.insertBefore(reasoningContainer, spinnerContainer.nextSibling);
-                                        }
-                                        const reasoningTextElement = reasoningContainer.querySelector('.reasoning-text');
-                                        reasoningMessage += delta.reasoning_content;
-                                        reasoningTextElement.innerHTML = marked.parse(reasoningMessage);
-                                        chatWindow.scrollTop = chatWindow.scrollHeight;
-                                    }
+                        const dataStr = line.substring(6).trim();
+                        if (dataStr === '[DONE]') {
+                            // The [DONE] message indicates the end of the stream.
+                            // We can break the outer loop here.
+                            // The 'finally' block will handle cleanup.
+                            // We need a way to break the outer while loop.
+                            // Let's return from the function.
+                            updateHistoryAndRender(botMessage, selectedModel, isRetry, reasoningMessage);
+                            cleanupAfterResponse(timerInterval, contentDiv, hasError, startTime);
+                            return;
+                        }
 
-                                    // Handle content
-                                    if (delta.content) {
-                                        // Collapse reasoning on first content chunk
-                                        if (botMessage === '' && reasoningContainer) {
-                                            reasoningContainer.open = false;
-                                        }
-                                        botMessage += delta.content;
-                                        // Create a separate div for the main content to avoid re-parsing reasoning
-                                        let mainContentDiv = contentDiv.querySelector('.main-content-text');
-                                        if (!mainContentDiv) {
-                                            mainContentDiv = document.createElement('div');
-                                            mainContentDiv.className = 'main-content-text';
-                                            contentDiv.appendChild(mainContentDiv);
-                                        }
-                                        mainContentDiv.innerHTML = marked.parse(botMessage);
-                                        contentDiv.prepend(spinnerContainer);
-                                        hljs.highlightAll();
-                                        chatWindow.scrollTop = chatWindow.scrollHeight;
+                        try {
+                            const data = JSON.parse(dataStr);
+                            const delta = data.choices && data.choices[0] && data.choices[0].delta;
+                            if (delta) {
+                                let reasoningContainer = contentDiv.querySelector('.reasoning-content');
+
+                                // Handle reasoning_content
+                                if (delta.reasoning_content) {
+                                    if (!reasoningContainer) {
+                                        reasoningContainer = document.createElement('details');
+                                        reasoningContainer.className = 'reasoning-content';
+                                        reasoningContainer.open = true;
+                                        reasoningContainer.innerHTML = `<summary>Thoughts</summary><div class="reasoning-text"></div>`;
+                                        contentDiv.insertBefore(reasoningContainer, spinnerContainer.nextSibling);
                                     }
+                                    const reasoningTextElement = reasoningContainer.querySelector('.reasoning-text');
+                                    reasoningMessage += delta.reasoning_content;
+                                    reasoningTextElement.innerHTML = marked.parse(reasoningMessage);
+                                    chatWindow.scrollTop = chatWindow.scrollHeight;
                                 }
-                                // Handle usage chunk
-                                if (data.usage) {
-                                    console.log('Usage data received:', data.usage);
+
+                                // Handle content
+                                if (delta.content) {
+                                    // Collapse reasoning on first content chunk
+                                    if (botMessage === '' && reasoningContainer) {
+                                        reasoningContainer.open = false;
+                                    }
+                                    botMessage += delta.content;
+                                    // Create a separate div for the main content to avoid re-parsing reasoning
+                                    let mainContentDiv = contentDiv.querySelector('.main-content-text');
+                                    if (!mainContentDiv) {
+                                        mainContentDiv = document.createElement('div');
+                                        mainContentDiv.className = 'main-content-text';
+                                        contentDiv.appendChild(mainContentDiv);
+                                    }
+                                    mainContentDiv.innerHTML = marked.parse(botMessage);
+                                    contentDiv.prepend(spinnerContainer);
+                                    hljs.highlightAll();
+                                    chatWindow.scrollTop = chatWindow.scrollHeight;
                                 }
-                            } catch (e) {
-                                console.error('Error parsing OpenAI stream data:', e, dataStr);
                             }
+                            // Handle usage chunk
+                            if (data.usage) {
+                                console.log('Usage data received:', data.usage);
+                            }
+                        } catch (e) {
+                            console.error('Error parsing OpenAI stream data:', e, `"${dataStr}"`);
                         }
                     }
                 }
