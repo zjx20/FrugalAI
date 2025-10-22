@@ -332,7 +332,7 @@
 
             card.innerHTML = `
                 <div class="provider-header">
-                    <div class="provider-name">${provider.name}</div>
+                    <div class="provider-name">${provider.displayName || provider.name}</div>
                 </div>
 
                 <form onsubmit="updateProvider(event, '${provider.name}')">

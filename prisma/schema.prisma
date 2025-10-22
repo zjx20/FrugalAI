@@ -65,6 +65,7 @@ enum ProviderName {
 
 model Provider {
   name                ProviderName @id
+  displayName         String?
   throttleMode        ThrottleMode @default(BY_KEY)
   minThrottleDuration Int          @default(1)
   maxThrottleDuration Int          @default(15)

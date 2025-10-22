@@ -6,7 +6,7 @@ FrugalAI is a powerful and flexible LLM API gateway, designed to provide a unifi
 
 This project uses a Cloudflare D1 database to store user and API key information, and provides a web interface for management. Key features include:
 
-- **Multi-Provider Support**: Seamlessly integrate with various LLM providers such as `GEMINI_CODE_ASSIST`, `CODE_BUDDY`, `GOOGLE_AI_STUDIO`, and any `OPEN_AI`-compatible service.
+- **Multi-Provider Support**: Seamlessly integrate with various LLM providers such as Gemini Code Assist (`GEMINI_CODE_ASSIST`), CodeBuddy (`CODE_BUDDY`), Google AI Studio (`GOOGLE_AI_STUDIO`), and any OpenAI-compatible (`OPEN_AI`) service.
 - **Unified API Interface**: Exposes OpenAI, Google Gemini, and Anthropic-compatible endpoints, allowing you to use your favorite tools and applications without modification.
 - **API Key Pooling**: Manage multiple API keys per provider for a single user, enabling automatic rotation to handle rate limits and improve uptime.
 - **Multi-Model Fallback**: Specify a sequence of models in a single request (e.g., `gemini-2.5-pro,gemini-2.5-flash`) for automatic fallback if the primary model is unavailable.
@@ -166,9 +166,9 @@ First, you need a personal User Token to access the management interface and the
 
 The proxy supports multiple providers. You can obtain credentials for the following providers:
 
-#### `GEMINI_CODE_ASSIST` Provider
+#### Gemini Code Assist (`GEMINI_CODE_ASSIST`)
 
-The core proxy functionality relies on API keys for the `GEMINI_CODE_ASSIST` provider. To generate the necessary credentials from a Google account, run the `authorize.mjs` script from your terminal:
+The core proxy functionality relies on API keys for the Gemini Code Assist provider. To generate the necessary credentials from a Google account, run the `authorize.mjs` script from your terminal:
 
 ```bash
 node authorize.mjs
@@ -181,9 +181,9 @@ This script will:
 
 You can run this script multiple times for different Google accounts to generate multiple credentials.
 
-#### `CODE_BUDDY` Provider
+#### CodeBuddy (`CODE_BUDDY`)
 
-To obtain credentials for the `CODE_BUDDY` provider (macOS only):
+To obtain credentials for the CodeBuddy provider (macOS only):
 
 1.  Install the CodeBuddy CLI tool by following the instructions at https://www.codebuddy.ai/cli
 2.  Run the CodeBuddy tool and complete the login process
@@ -195,9 +195,9 @@ To obtain credentials for the `CODE_BUDDY` provider (macOS only):
 
 **Note:** The credential extraction method above is currently only available for macOS systems. Methods for other operating systems are to be determined.
 
-#### `GOOGLE_AI_STUDIO` Provider
+#### Google AI Studio (`GOOGLE_AI_STUDIO`)
 
-To obtain credentials for the `GOOGLE_AI_STUDIO` provider:
+To obtain credentials for the Google AI Studio provider:
 
 1.  Visit https://aistudio.google.com/api-keys to access the Google AI Studio API Keys page
 2.  Sign in with your Google account if not already logged in
@@ -207,7 +207,7 @@ To obtain credentials for the `GOOGLE_AI_STUDIO` provider:
 
 **Note:** Unlike other providers that require Base64 encoded credentials, the `GOOGLE_AI_STUDIO` provider uses the plain text API key directly.
 
-#### `OPEN_AI` Provider
+#### OpenAI Compatible (`OPEN_AI`)
 
 The `OPEN_AI` provider allows you to connect to any service that is compatible with the OpenAI API, including the official OpenAI service or other third-party services.
 
@@ -221,7 +221,7 @@ Now, add the credential(s) you just obtained to your user account via the web UI
 
 1.  Go back to the user management page. If you are not already logged in, paste your **User Token** from Step 1 into the login field and click "Login".
 2.  In the "Create New API Key" section:
-    -   Select the appropriate provider from the dropdown (`GEMINI_CODE_ASSIST`, `CODE_BUDDY`, `GOOGLE_AI_STUDIO`, or `OPEN_AI`).
+    -   Select the appropriate provider from the dropdown (e.g., `Gemini Code Assist`, `CodeBuddy`, `Google AI Studio`, or `OpenAI Compatible`).
     -   Paste the credential string from Step 2 into the "Enter your key from the provider" field.
     -   For the `OPEN_AI` provider, you can also specify an optional **Base URL** and a list of **Available Models**.
     -   Optionally, add a note to remember which account this key corresponds to.

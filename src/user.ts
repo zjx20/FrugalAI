@@ -231,7 +231,7 @@ app.delete('/user/access-token', async (c) => {
 app.get('/providers', async (c) => {
 	const db = c.get('db');
 	const providers = await db.getAllProviders();
-	return c.json(providers.map(p => p.name));
+	return c.json(providers.map(p => ({ name: p.name, displayName: p.displayName })));
 });
 
 // Model Alias management endpoints

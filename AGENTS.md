@@ -9,7 +9,7 @@ FrugalAI is a powerful and flexible LLM API gateway deployed as a Cloudflare Wor
 The system uses a Cloudflare D1 database (via Prisma ORM) for data persistence. It supports multi-user management, a dual-token authentication system, API key rotation for rate limit handling, and provider-level throttling with exponential backoff.
 
 **Key Features:**
-- **Multi-Provider Support**: Seamlessly integrate with `GEMINI_CODE_ASSIST`, `CODE_BUDDY`, `GOOGLE_AI_STUDIO`, and any `OPEN_AI`-compatible service.
+- **Multi-Provider Support**: Seamlessly integrate with Gemini Code Assist (`GEMINI_CODE_ASSIST`), CodeBuddy (`CODE_BUDDY`), Google AI Studio (`GOOGLE_AI_STUDIO`), and any OpenAI-compatible (`OPEN_AI`) service.
 - **Unified API Interface**: Exposes OpenAI, Google Gemini, and Anthropic-compatible endpoints.
 - **API Key Pooling & Rotation**: Manages multiple API keys per provider, enabling automatic rotation to handle rate limits.
 - **Multi-Model Fallback**: Supports a sequence of models in a single request (e.g., `gemini-2.5-pro,gemini-2.5-flash`) for automatic fallback.
@@ -53,7 +53,7 @@ npx wrangler secret put ANTHROPIC_API_KEY  # Optional, for accurate token counti
 -   **`src/admin.ts`**: A Hono application for the protected administrator interface (provider configuration).
 -   **`prisma/schema.prisma`**: The single source of truth for the database schema.
 -   **`public/` directory**: Contains all static assets for the user-facing UI, served automatically by Cloudflare Workers via the `assets` binding in `wrangler.jsonc`.
--   **`authorize.mjs`**: A standalone CLI script to guide users through the Google OAuth2 flow for `GEMINI_CODE_ASSIST` credentials.
+-   **`authorize.mjs`**: A standalone CLI script to guide users through the Google OAuth2 flow for Gemini Code Assist (`GEMINI_CODE_ASSIST`) credentials.
 -   **`src/providers/`**: Directory containing individual provider handlers, each implementing the `ProviderHandler` interface.
 -   **`src/adapters/`**: Contains logic for converting between different API protocols (e.g., `openai-gemini.ts`, `anthropic-openai.ts`).
 
@@ -86,8 +86,8 @@ The core logic of the gateway follows a sophisticated pipeline:
     - **Access Tokens (`sk-api-...`)**: API-only access, ideal for applications. They cannot modify account settings.
 - **Onboarding**:
     1.  **Registration**: User registers via UI to get a User Token.
-    2.  **Credential Generation**: User obtains credentials from providers (e.g., `node authorize.mjs` for `GEMINI_CODE_ASSIST`, web UI for `GOOGLE_AI_STUDIO`).
-    3.  **API Key Creation**: User adds credentials as API keys in the UI. For `OPEN_AI` provider, `baseUrl` and `availableModels` can be specified.
+    2.  **Credential Generation**: User obtains credentials from providers (e.g., `node authorize.mjs` for Gemini Code Assist, web UI for Google AI Studio).
+    3.  **API Key Creation**: User adds credentials as API keys in the UI. For the OpenAI Compatible (`OPEN_AI`) provider, `baseUrl` and `availableModels` can be specified.
 
 ### 4.3. Administrator Interface
 

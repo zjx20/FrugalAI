@@ -139,7 +139,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const response = await fetch('/api/providers');
     if (response.ok) {
       const providers = await response.json();
-      providerSelect.innerHTML = providers.map(p => `<option value="${p}">${p}</option>`).join('');
+      providerSelect.innerHTML = providers.map(p => `<option value="${p.name}">${p.displayName || p.name}</option>`).join('');
       toggleOpenAIFields();
     } else {
       console.error('Failed to load providers');
@@ -268,7 +268,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 return `<small style="color:#ff9800" title="${title}">[${label}] Failing ${e.count} consecutive time${suffix}</small>`;
               }).join('<br>')}</div>`
             : '';
-          keyInfo.innerHTML = `${statusIndicator} <b>${key.providerName}</b> (ID: ${key.id})${notesText}${lastErrorsHtml}${failingHtml}`;
+          keyInfo.innerHTML = `${statusIndicator} <b>${key.provider.displayName || key.providerName}</b> (ID: ${key.id})${notesText}${lastErrorsHtml}${failingHtml}`;
 
           const buttonGroup = document.createElement('div');
 
@@ -392,7 +392,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function openEditModal(key) {
     editKeyIdInput.value = key.id;
-    editKeyProvider.textContent = key.providerName;
+    editKeyProvider.textContent = key.provider.displayName || key.providerName;
     editKeyDataInput.value = (key.keyData && key.keyData.key) ? key.keyData.key : '';
     editKeyNotesInput.value = key.notes || '';
 
