@@ -1,5 +1,5 @@
 import { AnthropicRequest, ApiKeyWithProvider, Credential, GeminiRequest, OpenAIRequest, Protocol, ProviderHandler, RequestContext, ThrottledError } from "../../core/types";
-import { convertAnthropicRequestToOpenAI, convertOpenAIResponseToAnthropic } from '../../adapters/anthropic-openai';
+import { handleAnthropicRequestWithAdapter } from "../../utils/adapter-utils";
 import crypto from 'crypto';
 
 interface codeBuddyAccount {
@@ -256,31 +256,7 @@ class CodeBuddyHandler implements ProviderHandler {
 			(request as any).stream = true;
 		}
 
-		// Convert Anthropic request to OpenAI format
-		const openaiRequest = convertAnthropicRequestToOpenAI(request);
-
-		// console.log(`debug: original anthropic request: ${JSON.stringify(request, null, 2)}\n\n`);
-		// console.log(`debug: converted openai request: ${JSON.stringify(openaiRequest, null, 2)}\n\n`);
-
-		// Reuse the existing OpenAI request handler
-		const response = await this.handleOpenAIRequest(ctx, openaiRequest, cred);
-
-		// If an error occurred, return it directly
-		if (response instanceof Error) {
-			return response;
-		}
-
-		// If no success, return it directly
-		if (!response.ok) {
-			return response;
-		}
-
-		// Convert OpenAI response back to Anthropic format
-		return await convertOpenAIResponseToAnthropic(
-			request.stream || false,
-			response,
-			ctx.executionCtx
-		);
+		return handleAnthropicRequestWithAdapter(ctx, request, cred, this.handleOpenAIRequest.bind(this));
 	}
 }
 

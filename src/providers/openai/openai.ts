@@ -1,5 +1,5 @@
 import { RequestContext, Protocol, ProviderHandler, OpenAIRequest, GeminiRequest, AnthropicRequest, Credential, ThrottledError, ApiKeyWithProvider } from "../../core/types";
-import { convertAnthropicRequestToOpenAI, convertOpenAIResponseToAnthropic } from "../../adapters/anthropic-openai";
+import { handleAnthropicRequestWithAdapter } from "../../utils/adapter-utils";
 
 const DEFAULT_OPENAI_ENDPOINT = 'https://api.openai.com/v1';
 
@@ -100,28 +100,7 @@ class OpenAIHandler implements ProviderHandler {
 	}
 
 	async handleAnthropicRequest(ctx: RequestContext, request: AnthropicRequest, cred: Credential): Promise<Response | Error> {
-		// Convert Anthropic request to OpenAI format
-		const openaiRequest = convertAnthropicRequestToOpenAI(request);
-
-		// Reuse the existing OpenAI request handler
-		const response = await this.handleOpenAIRequest(ctx, openaiRequest, cred);
-
-		// If an error occurred, return it directly
-		if (response instanceof Error) {
-			return response;
-		}
-
-		// If not successful, return it directly
-		if (!response.ok) {
-			return response;
-		}
-
-		// Convert OpenAI response back to Anthropic format
-		return await convertOpenAIResponseToAnthropic(
-			request.stream || false,
-			response,
-			ctx.executionCtx
-		);
+		return handleAnthropicRequestWithAdapter(ctx, request, cred, this.handleOpenAIRequest.bind(this));
 	}
 }
 
