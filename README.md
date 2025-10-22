@@ -2,9 +2,17 @@
 
 The solution for the poor, long live free access!
 
-This project is a Cloudflare Worker that acts as a proxy for the Google Gemini API. It exposes an OpenAI-compatible API interface and internally translates requests to the Google Code Assist API format, enabling free access to Gemini models.
+FrugalAI is a powerful and flexible LLM API gateway, designed to provide a unified interface for various large language model providers. Deployed as a Cloudflare Worker, it offers a robust solution for managing API keys, routing requests, and enhancing reliability, all while maintaining compatibility with the API standard of OpenAI, Google Gemini, and Anthropic.
 
-This project uses a Cloudflare D1 database to store user and API key information, and provides a web interface for management.
+This project uses a Cloudflare D1 database to store user and API key information, and provides a web interface for management. Key features include:
+
+- **Multi-Provider Support**: Seamlessly integrate with various LLM providers such as `GEMINI_CODE_ASSIST`, `CODE_BUDDY`, `GOOGLE_AI_STUDIO`, and any `OPEN_AI`-compatible service.
+- **Unified API Interface**: Exposes OpenAI, Google Gemini, and Anthropic-compatible endpoints, allowing you to use your favorite tools and applications without modification.
+- **API Key Pooling**: Manage multiple API keys per provider for a single user, enabling automatic rotation to handle rate limits and improve uptime.
+- **Multi-Model Fallback**: Specify a sequence of models in a single request (e.g., `gemini-2.5-pro,gemini-2.5-flash`) for automatic fallback if the primary model is unavailable.
+- **Advanced Routing**: Precisely control which provider to use with provider-specific model names (e.g., `GEMINI_CODE_ASSIST/gemini-2.5-flash`).
+- **Custom Model Aliases**: Create custom aliases for model names to ensure compatibility with tools that have hard-coded model identifiers.
+- **Secure Token System**: Differentiates between full-access User Tokens (`sk-...`) for management and API-only Access Tokens (`sk-api-...`) for safer application integration.
 
 ## Deployment and Operation
 
@@ -259,7 +267,7 @@ If you're using AI tools that don't allow custom model names (they use fixed, bu
 
 ## How to Use the Service
 
-Once you have registered and added at least one `GEMINI_CODE_ASSIST` key, you can use the service by providing either your **User Token** (prefixed with `sk-`) or an **Access Token** (prefixed with `sk-api-`) as a Bearer token.
+Once you have registered and added at least one API key, you can use the service by providing either your **User Token** (prefixed with `sk-`) or an **Access Token** (prefixed with `sk-api-`) as a Bearer token.
 
 ### Provider-Specific Model Selection
 
@@ -323,7 +331,7 @@ When you specify a model, FrugalAI uses the following matching logic to find com
 
 ### 1. Test with `curl`
 
-You can use `curl` to call the API directly. The proxy exposes two compatible endpoints: one for the OpenAI API and one for the Google Gemini API.
+You can use `curl` to call the API directly. The proxy exposes compatible endpoints for the OpenAI, Google Gemini, and Anthropic APIs.
 
 **OpenAI-Compatible Endpoint:**
 
@@ -374,13 +382,13 @@ Replace `<your_endpoint_url>` and `<YOUR_TOKEN>` with your actual information. `
 
 ### 2. Use in Other Tools
 
-The API provided by this proxy is compatible with the OpenAI Chat Completions API. This allows you to integrate it with any third-party application or tool (e.g., IDE plugins, specialized AI clients) that supports the OpenAI API format and allows you to configure a custom API endpoint.
+The API provided by this proxy is compatible with the OpenAI, Google Gemini, and Anthropic APIs. This allows you to integrate it with any third-party application or tool (e.g., IDE plugins, specialized AI clients) that supports these API formats and allows you to configure a custom API endpoint.
 
 To set this up, find the API settings in your tool of choice and configure the following:
 -   **API Endpoint / Base URL:** Your `<your_endpoint_url>`
 -   **API Key:** Your **User Token** (prefixed with `sk-`) or **Access Token** (prefixed with `sk-api-`)
 
-Once configured, the tool will communicate with this proxy, allowing you to use its features powered by Gemini at no cost.
+Once configured, the tool will communicate with this proxy, allowing you to leverage all of its features, such as key pooling and multi-model fallback.
 
 **Security Recommendation:** For applications and shared environments, use Access Tokens instead of User Tokens to limit access to API functionality only.
 

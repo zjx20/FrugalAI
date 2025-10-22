@@ -172,3 +172,6 @@ dist
 .wrangler/
 
 /src/generated/prisma
+
+# misc
+.clinerules/
