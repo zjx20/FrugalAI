@@ -205,7 +205,7 @@ The `OPEN_AI` provider allows you to connect to any service that is compatible w
 
 1.  **API Key**: Obtain the API key from your service provider (e.g., from the [OpenAI dashboard](https://platform.openai.com/api-keys)). This is typically a string prefixed with `sk-`.
 2.  **Base URL** (Optional): If you are using a third-party service, enter its endpoint URL here (e.g., `https://api.example.com/v1`). If left blank, it will default to the official OpenAI endpoint (`https://api.openai.com/v1`).
-3.  **Available Models**: You must specify a list of models supported by this key. This is a JSON array of strings (e.g., `["gpt-4o", "gpt-4-turbo"]`).
+3.  **Available Models**: You must specify a list of models supported by this key. In the web UI, enter one model per line (e.g., `gpt-5`).
 
 ### Step 3: Add Your Credentials as an API Key
 

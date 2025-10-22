@@ -12,7 +12,45 @@
     input, button, select { padding: 0.5em; }
     button { cursor: pointer; }
     .modal { position: fixed; z-index: 1; left: 0; top: 0; width: 100%; height: 100%; overflow: auto; background-color: rgba(0,0,0,0.4); }
-    .modal-content { background-color: #fefefe; margin: 15% auto; padding: 20px; border: 1px solid #888; width: 80%; max-width: 500px; border-radius: 5px; }
+    .modal-content { background-color: #fefefe; margin: 10% auto; padding: 20px; border: 1px solid #888; width: 80%; max-width: 600px; border-radius: 8px; box-shadow: 0 4px 8px rgba(0,0,0,0.1); }
+    .modal-form-grid {
+      display: grid;
+      grid-template-columns: 120px 1fr;
+      gap: 1em;
+      align-items: center;
+    }
+    .modal-form-grid label {
+      text-align: right;
+      font-weight: bold;
+    }
+    .modal-form-grid input, .modal-form-grid textarea {
+      width: 100%;
+      box-sizing: border-box;
+      padding: 0.5em;
+    }
+    .modal-form-grid .full-width {
+      grid-column: 1 / -1;
+    }
+    .modal-form-grid .full-width label {
+      text-align: left;
+      margin-bottom: 0.5em;
+      display: block;
+    }
+    #edit-openai-fields .modal-form-grid label {
+        text-align: right;
+    }
+    #edit-openai-fields .full-width label {
+        text-align: left;
+    }
+    .modal-form-grid .full-width textarea {
+      resize: vertical;
+    }
+    .modal-buttons {
+      display: flex;
+      justify-content: flex-end;
+      margin-top: 1.5em;
+      gap: 0.5em;
+    }
     .close-button { color: #aaa; float: right; font-size: 28px; font-weight: bold; }
     .close-button:hover, .close-button:focus { color: black; text-decoration: none; cursor: pointer; }
     #api-keys-list, #access-tokens-list { list-style-type: none; padding: 0; }
@@ -90,7 +128,7 @@
         <input type="text" id="key-data-input" placeholder="Enter your key from the provider">
         <div id="openai-fields" class="hidden nested-fields">
           <input type="text" id="base-url-input" placeholder="Base URL (optional, defaults to OpenAI)">
-          <textarea id="available-models-input" placeholder="Available Models (one per line)" rows="3" style="margin-top: 1em;"></textarea>
+          <textarea id="available-models-input" placeholder="Available Models (one per line, e.g., gpt-5)" rows="3" style="margin-top: 1em;"></textarea>
         </div>
         <button id="create-key-button">Create Key</button>
       </div>
@@ -137,21 +175,27 @@
       <span class="close-button">&times;</span>
       <h2>Edit API Key</h2>
       <input type="hidden" id="edit-key-id">
-      <p>Provider: <b id="edit-key-provider"></b></p>
-      <label for="edit-key-data-input">Key:</label>
-      <input type="text" id="edit-key-data-input" placeholder="Enter your key from the provider">
-      <br><br>
-      <label for="edit-key-notes-input">Notes:</label>
-      <input type="text" id="edit-key-notes-input" placeholder="Notes (e.g., 'My personal account')">
-      <div id="edit-openai-fields" class="hidden" style="margin-top: 1em;">
-        <label for="edit-base-url-input">Base URL:</label>
-        <input type="text" id="edit-base-url-input" placeholder="Base URL (optional)">
-        <br><br>
-        <label for="edit-available-models-input">Available Models (one per line):</label>
-        <textarea id="edit-available-models-input" rows="4"></textarea>
+      <div class="modal-form-grid">
+        <label>Provider:</label>
+        <b id="edit-key-provider"></b>
+
+        <label for="edit-key-data-input">Key:</label>
+        <input type="text" id="edit-key-data-input" placeholder="Enter your key from the provider">
+
+        <label for="edit-key-notes-input">Notes:</label>
+        <input type="text" id="edit-key-notes-input" placeholder="Notes (e.g., 'My personal account')">
+
+        <label for="edit-base-url-input" id="edit-base-url-label" class="hidden">Base URL:</label>
+        <input type="text" id="edit-base-url-input" placeholder="Base URL (optional)" class="hidden">
+
+        <div id="edit-available-models-container" class="hidden full-width">
+          <label for="edit-available-models-input">Available Models (one per line, e.g., gpt-5):</label>
+          <textarea id="edit-available-models-input" rows="4" placeholder="gpt-5&#x000A;gpt-4-turbo"></textarea>
+        </div>
       </div>
-      <br><br>
-      <button id="save-key-button">Save Changes</button>
+      <div class="modal-buttons">
+        <button id="save-key-button">Save Changes</button>
+      </div>
     </div>
   </div>
 

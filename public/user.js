@@ -41,8 +41,9 @@ document.addEventListener('DOMContentLoaded', () => {
   const saveKeyButton = document.getElementById('save-key-button');
   const closeModalButton = editModal.querySelector('.close-button');
 
-  const editOpenaiFields = document.getElementById('edit-openai-fields');
+  const editBaseUrlLabel = document.getElementById('edit-base-url-label');
   const editBaseUrlInput = document.getElementById('edit-base-url-input');
+  const editAvailableModelsContainer = document.getElementById('edit-available-models-container');
   const editAvailableModelsInput = document.getElementById('edit-available-models-input');
 
   let apiToken = localStorage.getItem('apiToken');
@@ -374,9 +375,13 @@ document.addEventListener('DOMContentLoaded', () => {
     if (key.providerName === 'OPEN_AI') {
       editBaseUrlInput.value = key.baseUrl || '';
       editAvailableModelsInput.value = (key.availableModels || []).join('\n');
-      editOpenaiFields.classList.remove('hidden');
+      editBaseUrlLabel.classList.remove('hidden');
+      editBaseUrlInput.classList.remove('hidden');
+      editAvailableModelsContainer.classList.remove('hidden');
     } else {
-      editOpenaiFields.classList.add('hidden');
+      editBaseUrlLabel.classList.add('hidden');
+      editBaseUrlInput.classList.add('hidden');
+      editAvailableModelsContainer.classList.add('hidden');
     }
 
     editModal.classList.remove('hidden');
