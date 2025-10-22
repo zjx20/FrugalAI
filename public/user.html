@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>User Management</title>
+  <title>My Account</title>
   <style>
     body { font-family: sans-serif; margin: 2em; }
     .container { max-width: 800px; margin: 0 auto; }
@@ -16,8 +16,11 @@
     .modal-form-grid {
       display: grid;
       grid-template-columns: 120px 1fr;
-      gap: 1em;
+      gap: 0.8em;
       align-items: center;
+    }
+    #manage-models-modal .modal-form-grid {
+      gap: 1.2em;
     }
     .modal-form-grid label {
       text-align: right;
@@ -54,8 +57,42 @@
     .close-button { color: #aaa; float: right; font-size: 28px; font-weight: bold; }
     .close-button:hover, .close-button:focus { color: black; text-decoration: none; cursor: pointer; }
     #api-keys-list, #access-tokens-list { list-style-type: none; padding: 0; }
-    #api-keys-list li, #access-tokens-list li { display: flex; justify-content: space-between; align-items: center; padding: 0.5em; border-bottom: 1px solid #eee; }
+    #api-keys-list li, #access-tokens-list li { display: flex; justify-content: space-between; align-items: center; padding: 0.5em; border-bottom: 1px solid #eee; gap: 1em; }
+    .key-info { flex-grow: 1; margin-right: 1em; word-break: break-all; }
+    .key-actions { display: flex; gap: 0.5em; align-items: center; flex-shrink: 0; }
     .hidden { display: none; }
+    #manage-models-list {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0.2em 1em; /* row-gap column-gap */
+      max-height: 250px;
+      overflow-y: auto;
+      border: 1px solid #ccc;
+      padding: 0.8em;
+      border-radius: 4px;
+      list-style-type: none;
+      margin: 0;
+    }
+    #manage-models-list li {
+      display: flex;
+      align-items: center;
+      gap: 0.5em;
+      padding: 0.2em 0;
+      /* Let the label handle overflow */
+    }
+    #manage-models-list li input[type="checkbox"] {
+      flex-shrink: 0;
+      width: auto; /* Override the global width: 100% from .modal-form-grid input */
+    }
+    #manage-models-list li label {
+      font-weight: normal;
+      text-align: left;
+      cursor: pointer;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      min-width: 0; /* Important for flexbox truncation */
+    }
     .form-grid {
       display: grid;
       grid-template-columns: 1fr;
@@ -81,7 +118,7 @@
 </head>
 <body>
   <div class="container">
-    <h1>User Management</h1>
+    <h1>My Account</h1>
 
     <!-- Auth Section -->
     <div id="auth-section" class="section">
@@ -188,13 +225,34 @@
         <label for="edit-base-url-input" id="edit-base-url-label" class="hidden">Base URL:</label>
         <input type="text" id="edit-base-url-input" placeholder="Base URL (optional)" class="hidden">
 
-        <div id="edit-available-models-container" class="hidden full-width">
-          <label for="edit-available-models-input">Available Models (one per line, e.g., gpt-5):</label>
-          <textarea id="edit-available-models-input" rows="4" placeholder="gpt-5&#x000A;gpt-4-turbo"></textarea>
-        </div>
+        <!-- This is now handled by the Manage Models modal -->
+        <div id="edit-available-models-container" class="hidden full-width"></div>
       </div>
       <div class="modal-buttons">
         <button id="save-key-button">Save Changes</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Manage Models Modal -->
+  <div id="manage-models-modal" class="modal hidden">
+    <div class="modal-content">
+      <span class="close-button">&times;</span>
+      <h2>Manage Available Models</h2>
+      <input type="hidden" id="manage-models-key-id">
+      <div class="modal-form-grid">
+        <div class="full-width">
+          <label>Provider Models:</label>
+          <p style="font-size: 0.9em; color: #666; margin-top: 0; margin-bottom: 0.5em;">Uncheck to exclude a model from this key.</p>
+          <ul id="manage-models-list"></ul>
+        </div>
+        <div class="full-width">
+          <label for="manage-models-custom-input">Custom Models (one per line):</label>
+          <textarea id="manage-models-custom-input" rows="4" placeholder="my-custom-model-1&#x000A;my-custom-model-2"></textarea>
+        </div>
+      </div>
+      <div class="modal-buttons">
+        <button id="save-models-button">Save Changes</button>
       </div>
     </div>
   </div>

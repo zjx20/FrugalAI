@@ -46,7 +46,16 @@ document.addEventListener('DOMContentLoaded', () => {
   const editAvailableModelsContainer = document.getElementById('edit-available-models-container');
   const editAvailableModelsInput = document.getElementById('edit-available-models-input');
 
+  // Manage Models Modal elements
+  const manageModelsModal = document.getElementById('manage-models-modal');
+  const manageModelsKeyIdInput = document.getElementById('manage-models-key-id');
+  const manageModelsList = document.getElementById('manage-models-list');
+  const manageModelsCustomInput = document.getElementById('manage-models-custom-input');
+  const saveModelsButton = document.getElementById('save-models-button');
+  const closeManageModelsButton = manageModelsModal.querySelector('.close-button');
+
   let apiToken = localStorage.getItem('apiToken');
+  let currentKeys = []; // Cache for the keys
 
   if (apiToken) {
     authSection.classList.add('hidden');
@@ -230,6 +239,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
     if (response.ok) {
       const keys = await response.json();
+      currentKeys = keys; // Cache the keys
       apiKeysList.innerHTML = '';
       if (keys.length === 0) {
         noKeysMessage.classList.remove('hidden');
@@ -301,13 +311,26 @@ document.addEventListener('DOMContentLoaded', () => {
           deleteButton.textContent = 'Delete';
           deleteButton.onclick = () => deleteApiKey(key.id);
 
+          const manageModelsButton = document.createElement('button');
+          manageModelsButton.textContent = 'Manage Models';
+          manageModelsButton.onclick = () => openManageModelsModal(key.id);
+
           buttonGroup.appendChild(editButton);
+          buttonGroup.appendChild(manageModelsButton);
           buttonGroup.appendChild(resetButton);
           buttonGroup.appendChild(pauseButton);
           buttonGroup.appendChild(deleteButton);
 
-          li.appendChild(keyInfo);
-          li.appendChild(buttonGroup);
+          const keyInfoContainer = document.createElement('div');
+          keyInfoContainer.classList.add('key-info');
+          keyInfoContainer.appendChild(keyInfo);
+
+          const keyActionsContainer = document.createElement('div');
+          keyActionsContainer.classList.add('key-actions');
+          keyActionsContainer.appendChild(buttonGroup);
+
+          li.appendChild(keyInfoContainer);
+          li.appendChild(keyActionsContainer);
           apiKeysList.appendChild(li);
         });
       }
@@ -327,7 +350,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
     if (providerName === 'OPEN_AI') {
       body.baseUrl = baseUrlInput.value.trim() || undefined;
-      body.availableModels = availableModelsInput.value.split('\n').map(m => m.trim()).filter(m => m);
+      // This is now handled by the Manage Models modal, so we clear it.
+      // body.availableModels = availableModelsInput.value.split('\n').map(m => m.trim()).filter(m => m);
     }
 
     const response = await fetch('/api/user/keys', {
@@ -374,15 +398,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
     if (key.providerName === 'OPEN_AI') {
       editBaseUrlInput.value = key.baseUrl || '';
-      editAvailableModelsInput.value = (key.availableModels || []).join('\n');
       editBaseUrlLabel.classList.remove('hidden');
       editBaseUrlInput.classList.remove('hidden');
-      editAvailableModelsContainer.classList.remove('hidden');
     } else {
       editBaseUrlLabel.classList.add('hidden');
       editBaseUrlInput.classList.add('hidden');
-      editAvailableModelsContainer.classList.add('hidden');
     }
+    // This is now handled by the Manage Models modal
+    editAvailableModelsContainer.classList.add('hidden');
 
     editModal.classList.remove('hidden');
   }
@@ -411,8 +434,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
     if (editKeyProvider.textContent === 'OPEN_AI') {
       body.baseUrl = editBaseUrlInput.value.trim() || undefined;
-      body.availableModels = editAvailableModelsInput.value.split('\n').map(m => m.trim()).filter(m => m);
     }
+    // availableModels is now handled by the Manage Models modal, so we don't update it here.
 
     const response = await fetch(`/api/user/key`, {
       method: 'PUT',
@@ -685,4 +708,100 @@ document.addEventListener('DOMContentLoaded', () => {
       alert('Failed to delete model alias.');
     }
   }
+
+  // --- Manage Models Modal Functions ---
+
+  function openManageModelsModal(keyId) {
+    const key = currentKeys.find(k => k.id === keyId);
+    if (!key) {
+      console.error('Key not found for model management');
+      return;
+    }
+
+    manageModelsKeyIdInput.value = key.id;
+    const providerModels = (key.provider && key.provider.models) ? key.provider.models : [];
+    const availableModels = key.availableModels || [];
+
+    const excludedModels = new Set(
+      availableModels.filter(m => m.startsWith('-')).map(m => m.substring(1))
+    );
+    const customModels = availableModels.filter(m => !m.startsWith('-'));
+
+    manageModelsList.innerHTML = '';
+    if (providerModels.length > 0) {
+      providerModels.forEach(model => {
+        const li = document.createElement('li');
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.id = `model-checkbox-${model}`;
+        checkbox.value = model;
+        checkbox.checked = !excludedModels.has(model);
+
+        const label = document.createElement('label');
+        label.htmlFor = `model-checkbox-${model}`;
+        label.textContent = model;
+
+        li.appendChild(checkbox);
+        li.appendChild(label);
+        manageModelsList.appendChild(li);
+      });
+    } else {
+      manageModelsList.innerHTML = '<li>No provider models defined.</li>';
+    }
+
+
+    manageModelsCustomInput.value = customModels.join('\n');
+    manageModelsModal.classList.remove('hidden');
+  }
+
+  function closeManageModelsModal() {
+    manageModelsModal.classList.add('hidden');
+  }
+
+  closeManageModelsButton.addEventListener('click', closeManageModelsModal);
+  window.addEventListener('click', (event) => {
+    if (event.target == manageModelsModal) {
+      closeManageModelsModal();
+    }
+  });
+
+  saveModelsButton.addEventListener('click', async () => {
+    const id = parseInt(manageModelsKeyIdInput.value, 10);
+    const key = currentKeys.find(k => k.id === id);
+    if (!key) {
+      alert('Error: Could not find the key to update.');
+      return;
+    }
+
+    const providerModels = (key.provider && key.provider.models) ? key.provider.models : [];
+    const excludedModels = [];
+    manageModelsList.querySelectorAll('input[type="checkbox"]').forEach(checkbox => {
+      if (!checkbox.checked) {
+        excludedModels.push(`-${checkbox.value}`);
+      }
+    });
+
+    const customModels = manageModelsCustomInput.value.split('\n').map(m => m.trim()).filter(m => m);
+
+    const newAvailableModels = [...excludedModels, ...customModels];
+
+    const response = await fetch(`/api/user/key`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiToken}`,
+      },
+      body: JSON.stringify({
+        id,
+        availableModels: newAvailableModels.length > 0 ? newAvailableModels : null,
+      }),
+    });
+
+    if (response.ok) {
+      closeManageModelsModal();
+      loadApiKeys();
+    } else {
+      alert('Failed to update available models.');
+    }
+  });
 });

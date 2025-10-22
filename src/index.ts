@@ -160,14 +160,19 @@ app.get('/available-models', proxyAuth, (c) => {
 			providerModelsMap.set(providerName, new Set<string>());
 		}
 
+		const modelSet = providerModelsMap.get(providerName)!;
 		const providerModels = Array.isArray(key.provider.models) ? (key.provider.models as string[]) : [];
 		for (const model of providerModels) {
-			providerModelsMap.get(providerName)!.add(model);
+			modelSet.add(model);
 		}
 
 		const keyModels = Array.isArray(key.availableModels) ? (key.availableModels as string[]) : [];
 		for (const model of keyModels) {
-			providerModelsMap.get(providerName)!.add(model);
+			if (model.startsWith('-')) {
+				modelSet.delete(model.substring(1));
+			} else {
+				modelSet.add(model);
+			}
 		}
 	}
 
@@ -213,17 +218,19 @@ function matchModel(reqModelId: string, reqAlias: string | undefined, model: str
 }
 
 function resolveModelIds(reqModelId: string, reqAlias: string | undefined, key: ApiKeyWithProvider, handler: ProviderHandler): string[] {
-	// Priority 1: Use per-key availableModels if configured
-	const perKeyModels = key.availableModels;
-	let modelsToSearch: string[];
+	const perKeyModels = (key.availableModels || []) as string[];
+	const providerModels = (key.provider.models || []) as string[];
 
-	if (perKeyModels && Array.isArray(perKeyModels) && perKeyModels.length > 0) {
-		// Use per-key model list
-		modelsToSearch = perKeyModels as string[];
-	} else {
-		// Priority 2: Fall back to provider-level models
-		modelsToSearch = key.provider.models as string[] || [];
-	}
+	const excludedModels = new Set(
+		perKeyModels.filter(m => m.startsWith('-')).map(m => m.substring(1))
+	);
+	const customModels = perKeyModels.filter(m => !m.startsWith('-'));
+
+	// Combine provider models (excluding the ones explicitly removed) and custom models
+	const modelsToSearch = [
+		...providerModels.filter(m => !excludedModels.has(m)),
+		...customModels
+	];
 
 	const result = [];
 	const exists = new Set<string>();

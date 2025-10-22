@@ -80,6 +80,7 @@ The core logic of the gateway follows a sophisticated pipeline:
 ### 4.2. User Management & Onboarding
 
 - **Self-Service UI** (`public/user.html`): Users manage their accounts, API keys, access tokens, and model aliases.
+- **Per-Key Model Management**: The UI allows users to customize the list of available models for each API key. They can exclude models from the provider's default list or add custom models.
 - **Dual-Token System**:
     - **User Tokens (`sk-...`)**: Full privileges for API calls and account management.
     - **Access Tokens (`sk-api-...`)**: API-only access, ideal for applications. They cannot modify account settings.
@@ -104,7 +105,10 @@ The core logic of the gateway follows a sophisticated pipeline:
     - `User.modelAliases`: User-defined model alias mappings.
     - `ApiKey.keyData`: Provider-specific credential data.
     - `ApiKey.throttleData`: Stores throttle state for the key.
-    - `ApiKey.availableModels`: Per-key override for the list of available models.
+    - `ApiKey.availableModels`: A JSON array that modifies the provider's default model list for a specific key. It supports two types of entries:
+        - **Addition**: A model name string (e.g., `"my-custom-model"`) adds a model to the list.
+        - **Exclusion**: A model name string prefixed with a hyphen (e.g., `"-gpt-4-turbo"`) removes that model from the provider's default list.
+        If this field is `null` or empty, the key defaults to using the provider's `models` list.
     - `Provider.models`: Default list of model names/aliases for a provider.
 
 ### 4.5. Throttle System (`src/core/throttle-helper.ts`)
@@ -185,3 +189,4 @@ The core logic of the gateway follows a sophisticated pipeline:
     - **Static Assets**: The `public/` directory is served automatically. No routing logic is needed in `src/index.ts` for these files.
     - **Language**: Respond to users in their language. But all code, comments, and commit messages must be in **English**.
     - **Plan First**: Always outline your plan before modifying code and wait for user confirmation.
+    - **Documentation Update**: If a new feature is complex or significant, please update this `AGENTS.md` file after implementation.
