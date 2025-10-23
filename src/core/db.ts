@@ -332,15 +332,15 @@ export class Database {
   }
 
   /**
-   * Updates the model aliases for a user.
+   * Updates the model settings for a user.
    * @param userId The ID of the user.
-   * @param modelAliases The new model aliases (a JSON object mapping aliases to model names, or null to clear all aliases).
+   * @param modelSettings The new model settings (a JSON object with model configurations, or null to clear all settings).
    * @returns A promise that resolves to the updated user object.
    */
-  async updateUserModelAliases(userId: number, modelAliases: Record<string, string> | null): Promise<User> {
+  async updateUserModelSettings(userId: number, modelSettings: Record<string, any> | null): Promise<User> {
     return this.prisma.user.update({
       where: { id: userId },
-      data: { modelAliases: modelAliases === null ? Prisma.JsonNull : modelAliases }
+      data: { modelSettings: modelSettings === null ? Prisma.JsonNull : modelSettings }
     });
   }
 

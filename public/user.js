@@ -129,16 +129,17 @@ document.addEventListener('DOMContentLoaded', () => {
 
   async function showApiKeyManagement() {
     apiKeyManagementSection.classList.remove('hidden');
-    loadProviders();
+    await loadProviders();
     loadApiKeys();
     loadAccessTokens();
-    loadModelAliases();
+    loadModelSettings();
   }
 
   async function loadProviders() {
     const response = await fetch('/api/providers');
     if (response.ok) {
       const providers = await response.json();
+      availableProviders = providers; // Cache for model settings
       providerSelect.innerHTML = providers.map(p => `<option value="${p.name}">${p.displayName || p.name}</option>`).join('');
       toggleOpenAIFields();
     } else {
@@ -616,96 +617,273 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  // Model Alias management
-  const modelAliasesList = document.getElementById('model-aliases-list');
-  const noAliasesMessage = document.getElementById('no-aliases-message');
-  const aliasNameInput = document.getElementById('alias-name-input');
-  const aliasModelsInput = document.getElementById('alias-models-input');
-  const createAliasButton = document.getElementById('create-alias-button');
+  // Model Settings management
+  const modelSettingsContainer = document.getElementById('model-settings-container');
+  const addModelConfigButton = document.getElementById('add-model-config-button');
+  let modelSettings = {};
+  let availableProviders = [];
 
-  async function loadModelAliases() {
+  function getProviderDisplayName(providerName) {
+    const provider = availableProviders.find(p => p.name === providerName);
+    return provider ? (provider.displayName || provider.name) : providerName;
+  }
+
+  async function loadModelSettings() {
     if (!apiToken) return;
-    const response = await fetch('/api/user/model-aliases', {
+    const response = await fetch('/api/user/model-settings', {
       headers: { 'Authorization': `Bearer ${apiToken}` },
     });
     if (response.ok) {
-      const aliases = await response.json();
-      modelAliasesList.innerHTML = '';
-      const aliasEntries = Object.entries(aliases);
-      if (aliasEntries.length === 0) {
-        noAliasesMessage.classList.remove('hidden');
-      } else {
-        noAliasesMessage.classList.add('hidden');
-        aliasEntries.forEach(([alias, models]) => {
-          const li = document.createElement('li');
-
-          const aliasInfo = document.createElement('span');
-          aliasInfo.innerHTML = `🏷️ <b>${alias}</b> → <code>${models}</code>`;
-
-          const buttonGroup = document.createElement('div');
-
-          const deleteButton = document.createElement('button');
-          deleteButton.textContent = 'Delete';
-          deleteButton.style.backgroundColor = '#f44336';
-          deleteButton.style.color = 'white';
-          deleteButton.onclick = () => deleteModelAlias(alias);
-
-          buttonGroup.appendChild(deleteButton);
-
-          li.appendChild(aliasInfo);
-          li.appendChild(buttonGroup);
-          modelAliasesList.appendChild(li);
-        });
-      }
+      modelSettings = await response.json();
+      renderModelSettings();
     }
   }
 
-  createAliasButton.addEventListener('click', async () => {
-    const alias = aliasNameInput.value.trim();
-    const models = aliasModelsInput.value.trim();
+  function renderModelSettings() {
+    modelSettingsContainer.innerHTML = '';
+    const entries = Object.entries(modelSettings);
 
-    if (!alias || !models) {
-      alert('Please enter both alias name and target models.');
+    if (entries.length === 0) {
+      modelSettingsContainer.innerHTML = '<p style="color: #666;">No model configurations yet. Click the button below to add one.</p>';
       return;
     }
 
-    const response = await fetch('/api/user/model-aliases', {
-      method: 'PUT',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiToken}`,
-      },
-      body: JSON.stringify({ alias, models }),
+    entries.forEach(([modelName, config]) => {
+      const card = createModelConfigCard(modelName, config);
+      modelSettingsContainer.appendChild(card);
+    });
+  }
+
+  function createModelConfigCard(modelName, config) {
+    const card = document.createElement('div');
+    card.className = 'model-config-card';
+
+    const header = document.createElement('div');
+    header.className = 'model-config-header';
+
+    const title = document.createElement('h4');
+    title.textContent = modelName;
+
+    const deleteBtn = document.createElement('button');
+    deleteBtn.textContent = '×';
+    deleteBtn.style.backgroundColor = '#f44336';
+    deleteBtn.style.color = 'white';
+    deleteBtn.style.padding = '0.3em 0.6em';
+    deleteBtn.style.border = 'none';
+    deleteBtn.style.borderRadius = '3px';
+    deleteBtn.style.cursor = 'pointer';
+    deleteBtn.onclick = () => deleteModelConfig(modelName);
+
+    header.appendChild(title);
+    header.appendChild(deleteBtn);
+
+    const body = document.createElement('div');
+    body.className = 'model-config-body';
+
+    // Alias field
+    const aliasDiv = document.createElement('div');
+    aliasDiv.innerHTML = '<label><b>Alias (optional):</b></label>';
+    const aliasInput = document.createElement('input');
+    aliasInput.type = 'text';
+    aliasInput.value = config.alias || '';
+    aliasInput.placeholder = 'e.g., provider/model1,model2';
+    aliasInput.style.width = '100%';
+    aliasInput.style.marginTop = '0.3em';
+    aliasInput.onchange = () => {
+      if (!modelSettings[modelName]) modelSettings[modelName] = {};
+      modelSettings[modelName].alias = aliasInput.value.trim() || undefined;
+      saveModelSettings();
+    };
+    aliasDiv.appendChild(aliasInput);
+    body.appendChild(aliasDiv);
+
+    // Provider priorities
+    const prioritiesDiv = document.createElement('div');
+    prioritiesDiv.innerHTML = '<label><b>Provider Priorities:</b></label>';
+    prioritiesDiv.style.marginTop = '1em';
+
+    const prioritiesList = document.createElement('div');
+    const priorities = config.providerPriorities || {};
+
+    Object.entries(priorities).forEach(([provider, priority]) => {
+      const item = createPriorityItem(modelName, provider, priority);
+      prioritiesList.appendChild(item);
     });
 
-    if (response.ok) {
-      aliasNameInput.value = '';
-      aliasModelsInput.value = '';
-      loadModelAliases();
-      alert('Model alias created successfully!');
-    } else {
-      const error = await response.json();
-      alert(`Failed to create model alias: ${error.error || 'Unknown error'}`);
+    const addProviderBtn = document.createElement('button');
+    addProviderBtn.className = 'add-provider-btn';
+    addProviderBtn.textContent = '+ Add Provider';
+    addProviderBtn.onclick = () => addProviderPriority(modelName, prioritiesList);
+
+    prioritiesDiv.appendChild(prioritiesList);
+    prioritiesDiv.appendChild(addProviderBtn);
+    body.appendChild(prioritiesDiv);
+
+    card.appendChild(header);
+    card.appendChild(body);
+    return card;
+  }
+
+  function createPriorityItem(modelName, provider, priority) {
+    const item = document.createElement('div');
+    item.className = 'priority-item';
+
+    const label = document.createElement('label');
+    label.textContent = getProviderDisplayName(provider);
+    label.title = provider;
+
+    const input = document.createElement('input');
+    input.type = 'number';
+    input.value = priority;
+    input.onchange = () => {
+      if (!modelSettings[modelName]) modelSettings[modelName] = {};
+      if (!modelSettings[modelName].providerPriorities) modelSettings[modelName].providerPriorities = {};
+      modelSettings[modelName].providerPriorities[provider] = parseInt(input.value);
+      saveModelSettings();
+    };
+
+    const deleteBtn = document.createElement('button');
+    deleteBtn.textContent = '×';
+    deleteBtn.onclick = () => {
+      if (modelSettings[modelName] && modelSettings[modelName].providerPriorities) {
+        delete modelSettings[modelName].providerPriorities[provider];
+        saveModelSettings();
+        renderModelSettings();
+      }
+    };
+
+    item.appendChild(label);
+    item.appendChild(input);
+    item.appendChild(deleteBtn);
+    return item;
+  }
+
+  function addProviderPriority(modelName, prioritiesList) {
+    // Get already added providers for this model
+    const existingProviders = Object.keys(
+      (modelSettings[modelName] && modelSettings[modelName].providerPriorities) || {}
+    );
+
+    // Filter out already added providers
+    const availableToAdd = availableProviders.filter(
+      p => !existingProviders.includes(p.name)
+    );
+
+    if (availableToAdd.length === 0) {
+      alert('All available providers have already been added.');
+      return;
     }
+
+    // Create inline add form
+    const addForm = document.createElement('div');
+    addForm.className = 'priority-item';
+    addForm.style.backgroundColor = '#f0f0f0';
+    addForm.style.padding = '0.5em';
+    addForm.style.borderRadius = '3px';
+    addForm.style.marginTop = '0.5em';
+
+    const select = document.createElement('select');
+    select.style.flex = '1';
+    select.style.padding = '0.3em';
+    availableToAdd.forEach(p => {
+      const option = document.createElement('option');
+      option.value = p.name;
+      option.textContent = p.displayName || p.name;
+      select.appendChild(option);
+    });
+
+    const input = document.createElement('input');
+    input.type = 'number';
+    input.value = '0';
+    input.placeholder = 'Priority';
+    input.style.width = '80px';
+    input.style.padding = '0.3em';
+
+    const confirmBtn = document.createElement('button');
+    confirmBtn.textContent = '✓';
+    confirmBtn.style.backgroundColor = '#4CAF50';
+    confirmBtn.style.color = 'white';
+    confirmBtn.style.padding = '0.3em 0.6em';
+    confirmBtn.style.border = 'none';
+    confirmBtn.style.borderRadius = '3px';
+    confirmBtn.style.cursor = 'pointer';
+    confirmBtn.onclick = () => {
+      const provider = select.value;
+      const priority = parseInt(input.value);
+
+      if (!modelSettings[modelName]) modelSettings[modelName] = {};
+      if (!modelSettings[modelName].providerPriorities) modelSettings[modelName].providerPriorities = {};
+
+      modelSettings[modelName].providerPriorities[provider] = priority;
+      saveModelSettings();
+      renderModelSettings();
+    };
+
+    const cancelBtn = document.createElement('button');
+    cancelBtn.textContent = '×';
+    cancelBtn.style.backgroundColor = '#f44336';
+    cancelBtn.style.color = 'white';
+    cancelBtn.style.padding = '0.3em 0.6em';
+    cancelBtn.style.border = 'none';
+    cancelBtn.style.borderRadius = '3px';
+    cancelBtn.style.cursor = 'pointer';
+    cancelBtn.onclick = () => addForm.remove();
+
+    addForm.appendChild(select);
+    addForm.appendChild(input);
+    addForm.appendChild(confirmBtn);
+    addForm.appendChild(cancelBtn);
+
+    prioritiesList.appendChild(addForm);
+  }
+
+  addModelConfigButton.addEventListener('click', () => {
+    const modelName = prompt('Enter model name (e.g., gemini-2.5-pro):');
+    if (!modelName) return;
+
+    if (modelSettings[modelName]) {
+      alert('A configuration for this model already exists.');
+      return;
+    }
+
+    modelSettings[modelName] = {};
+    saveModelSettings();
+    renderModelSettings();
   });
 
-  async function deleteModelAlias(alias) {
-    if (!confirm(`Are you sure you want to delete the alias "${alias}"?`)) return;
+  async function deleteModelConfig(modelName) {
+    if (!confirm(`Are you sure you want to delete the configuration for "${modelName}"?`)) return;
 
-    const response = await fetch('/api/user/model-aliases', {
+    const response = await fetch('/api/user/model-settings', {
       method: 'DELETE',
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${apiToken}`,
       },
-      body: JSON.stringify({ alias }),
+      body: JSON.stringify({ modelName }),
     });
 
-    if (response.status === 200) {
-      loadModelAliases();
-      alert('Model alias deleted successfully.');
+    if (response.ok) {
+      delete modelSettings[modelName];
+      renderModelSettings();
     } else {
-      alert('Failed to delete model alias.');
+      alert('Failed to delete model configuration.');
+    }
+  }
+
+  async function saveModelSettings() {
+    const response = await fetch('/api/user/model-settings', {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiToken}`,
+      },
+      body: JSON.stringify({ modelSettings }),
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      alert(`Failed to save model settings: ${error.error || 'Unknown error'}`);
     }
   }
 
@@ -773,7 +951,6 @@ document.addEventListener('DOMContentLoaded', () => {
       return;
     }
 
-    const providerModels = (key.provider && key.provider.models) ? key.provider.models : [];
     const excludedModels = [];
     manageModelsList.querySelectorAll('input[type="checkbox"]').forEach(checkbox => {
       if (!checkbox.checked) {

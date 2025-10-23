@@ -114,6 +114,78 @@
       border-radius: 5px;
       margin-top: 0;
     }
+    .model-config-card {
+      border: 1px solid #ddd;
+      padding: 1em;
+      margin-bottom: 1em;
+      border-radius: 5px;
+      background-color: #f9f9f9;
+    }
+    .model-config-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 1em;
+      padding-bottom: 0.5em;
+      border-bottom: 1px solid #ddd;
+    }
+    .model-config-header h4 {
+      margin: 0;
+      font-size: 1.1em;
+    }
+    .model-config-body {
+      display: grid;
+      gap: 1em;
+    }
+    .priority-item {
+      display: flex;
+      align-items: center;
+      gap: 0.5em;
+      padding: 0.3em 0;
+    }
+    .priority-item label {
+      flex: 1;
+      min-width: 150px;
+    }
+    .priority-item input[type="number"] {
+      width: 80px;
+      padding: 0.3em;
+    }
+    .priority-item button {
+      padding: 0.3em 0.6em;
+      background-color: #f44336;
+      color: white;
+      border: none;
+      border-radius: 3px;
+      cursor: pointer;
+    }
+    .priority-item button:hover {
+      background-color: #d32f2f;
+    }
+    .add-provider-btn {
+      padding: 0.4em 0.8em;
+      background-color: #4CAF50;
+      color: white;
+      border: none;
+      border-radius: 3px;
+      cursor: pointer;
+      font-size: 0.9em;
+    }
+    .add-provider-btn:hover {
+      background-color: #45a049;
+    }
+    #add-model-config-button {
+      background-color: #2196F3;
+      color: white;
+      border: none;
+      padding: 0.6em 1.2em;
+      border-radius: 5px;
+      cursor: pointer;
+      margin-top: 1em;
+    }
+    #add-model-config-button:hover {
+      background-color: #0b7dda;
+    }
   </style>
 </head>
 <body>
@@ -187,22 +259,12 @@
 
       <hr style="margin: 2em 0;">
 
-      <h3>Model Aliases</h3>
-      <p>Create custom aliases for model names. This allows you to use simpler names in AI tools that don't support custom model names.</p>
-      <ul id="model-aliases-list"></ul>
-      <p id="no-aliases-message" class="hidden">You don't have any model aliases yet.</p>
-
-      <h4>Create New Model Alias</h4>
-      <div class="form-grid">
-        <div class="grid-col-2">
-          <input type="text" id="alias-name-input" placeholder="Alias name (e.g., 'my-model')">
-          <input type="text" id="alias-models-input" placeholder="Target models (e.g., 'provider/model1,model2')">
-        </div>
-        <button id="create-alias-button">Create Alias</button>
+      <h3>Model Settings</h3>
+      <p>Configure model routing settings including aliases and provider priorities. This allows you to control which providers are preferred for each model.</p>
+      <div id="model-settings-container">
+        <!-- Model settings will be dynamically rendered here -->
       </div>
-      <p style="font-size: 0.9em; color: #666; margin-top: 0.5em;">
-        Note: The target models support the same format as API requests, including provider prefixes and comma-separated fallback models.
-      </p>
+      <button id="add-model-config-button">+ Add Model Configuration</button>
     </div>
   </div>
 

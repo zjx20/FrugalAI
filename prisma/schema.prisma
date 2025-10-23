@@ -13,10 +13,10 @@ datasource db {
 }
 
 model User {
-  id           Int     @id @default(autoincrement())
-  token        String  @unique
-  name         String?
-  modelAliases Json? // JSON object mapping user-defined aliases to model names (e.g., {"my-alias": "provider/model1,provider/model2"})
+  id            Int     @id @default(autoincrement())
+  token         String  @unique
+  name          String?
+  modelSettings Json? // JSON object for model routing configuration (aliases and provider priorities)
 
   keys         ApiKey[]
   accessTokens AccessToken[]
@@ -70,6 +70,7 @@ model Provider {
   minThrottleDuration Int          @default(1)
   maxThrottleDuration Int          @default(15)
   models              Json // array of model names
+  nativeProtocols     Json? // array of natively supported protocols (e.g., ["openai", "gemini"])
 
   keys ApiKey[]
 }

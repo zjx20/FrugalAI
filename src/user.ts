@@ -234,66 +234,89 @@ app.get('/providers', async (c) => {
 	return c.json(providers.map(p => ({ name: p.name, displayName: p.displayName })));
 });
 
-// Model Alias management endpoints
+// Model Settings management endpoints
 
-app.use('/user/model-aliases', authMiddleware);
+app.use('/user/model-settings', authMiddleware);
 
-app.get('/user/model-aliases', async (c) => {
+app.get('/user/model-settings', async (c) => {
 	const user = c.get('user');
-	const modelAliases = user.modelAliases || {};
-	return c.json(modelAliases);
+	const modelSettings = user.modelSettings || {};
+	return c.json(modelSettings);
 });
 
-app.put('/user/model-aliases', async (c) => {
+app.put('/user/model-settings', async (c) => {
 	const db = c.get('db');
 	const user = c.get('user');
-	const { alias, models } = (await c.req.json()) as { alias: string; models: string };
+	const { modelSettings } = (await c.req.json()) as {
+		modelSettings: Record<string, {
+			alias?: string;
+			providerPriorities?: Record<string, number>;
+		}>
+	};
 
-	if (!alias || !models) {
-		return c.json({ error: 'Missing alias or models parameter' }, 400);
+	if (!modelSettings || typeof modelSettings !== 'object') {
+		return c.json({ error: 'Invalid modelSettings parameter' }, 400);
 	}
 
-	// Validate alias format
-	if (!/^[a-zA-Z0-9\.\/_-]+$/.test(alias)) {
-		return c.json({ error: 'Alias must contain only alphanumeric characters, hyphens, slashes, dots, and underscores' }, 400);
+	// Validate the structure
+	for (const [modelName, settings] of Object.entries(modelSettings)) {
+		// Validate model name format
+		if (!/^[a-zA-Z0-9\.\/_-]+$/.test(modelName)) {
+			return c.json({
+				error: `Invalid model name "${modelName}". Must contain only alphanumeric characters, hyphens, slashes, dots, and underscores`
+			}, 400);
+		}
+
+		// Validate settings structure
+		if (settings.alias !== undefined && typeof settings.alias !== 'string') {
+			return c.json({ error: `Invalid alias for model "${modelName}"` }, 400);
+		}
+
+		if (settings.providerPriorities !== undefined) {
+			if (typeof settings.providerPriorities !== 'object') {
+				return c.json({ error: `Invalid providerPriorities for model "${modelName}"` }, 400);
+			}
+			// Validate each priority is a number
+			for (const [provider, priority] of Object.entries(settings.providerPriorities)) {
+				if (typeof priority !== 'number') {
+					return c.json({
+						error: `Invalid priority value for provider "${provider}" in model "${modelName}". Must be a number.`
+					}, 400);
+				}
+			}
+		}
 	}
-
-	// Get current aliases
-	const currentAliases = (user.modelAliases as Record<string, string>) || {};
-
-	// Update or add the alias
-	currentAliases[alias] = models;
 
 	// Save to database
-	await db.updateUserModelAliases(user.id, currentAliases);
+	await db.updateUserModelSettings(user.id, modelSettings);
 
-	return c.json({ success: true, aliases: currentAliases });
+	return c.json({ success: true, modelSettings });
 });
 
-app.delete('/user/model-aliases', async (c) => {
+app.delete('/user/model-settings', async (c) => {
 	const db = c.get('db');
 	const user = c.get('user');
-	const { alias } = (await c.req.json()) as { alias: string };
+	const { modelName } = (await c.req.json()) as { modelName: string };
 
-	if (!alias) {
-		return c.json({ error: 'Missing alias parameter' }, 400);
+	if (!modelName) {
+		return c.json({ error: 'Missing modelName parameter' }, 400);
 	}
 
-	// Get current aliases
-	const currentAliases = (user.modelAliases as Record<string, string>) || {};
+	// Get current settings
+	const currentSettings = (user.modelSettings as Record<string, any>) || {};
 
-	// Check if alias exists
-	if (!currentAliases[alias]) {
-		return c.json({ error: 'Alias not found' }, 404);
+	// Check if model exists
+	if (!currentSettings[modelName]) {
+		return c.json({ error: 'Model settings not found' }, 404);
 	}
 
-	// Remove the alias
-	delete currentAliases[alias];
+	// Remove the model settings
+	delete currentSettings[modelName];
 
 	// Save to database
-	await db.updateUserModelAliases(user.id, Object.keys(currentAliases).length > 0 ? currentAliases : null);
+	await db.updateUserModelSettings(user.id, Object.keys(currentSettings).length > 0 ? currentSettings : null);
 
-	return c.json({ success: true, aliases: currentAliases });
+	return c.json({ success: true, modelSettings: currentSettings });
 });
 
 export default app;

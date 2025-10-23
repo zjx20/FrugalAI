@@ -250,6 +250,49 @@ interface CandidateKey {
 	key: ApiKeyWithProvider;
 	modelIds: string[];
 	consecutiveFailures: number;
+	priorityScore?: number; // Cached priority score for sorting optimization
+}
+
+/**
+ * Calculate priority score for a candidate key.
+ * Higher score = higher priority.
+ *
+ * Priority factors (in order of importance):
+ * 1. User-defined provider priorities (weight: ×100)
+ * 2. Native protocol match (weight: +10)
+ * 3. Health (consecutive failures, weight: -5 per failure)
+ */
+function calculateKeyPriority(
+	candKey: CandidateKey,
+	requestModel: string,
+	requestProtocol: Protocol,
+	userModelSettings?: any
+): number {
+	let score = 0;
+
+	// 1. User-defined provider priorities (primary factor)
+	if (userModelSettings && typeof userModelSettings === 'object') {
+		const modelSetting = userModelSettings[requestModel];
+		if (modelSetting?.providerPriorities) {
+			const providerPriority = modelSetting.providerPriorities[candKey.key.providerName];
+			if (providerPriority !== undefined) {
+				score += providerPriority * 100;
+			}
+		}
+	}
+
+	// 2. Native protocol bonus (secondary factor)
+	const nativeProtocols = candKey.key.provider.nativeProtocols as string[] | null;
+	if (nativeProtocols && Array.isArray(nativeProtocols)) {
+		if (nativeProtocols.includes(requestProtocol)) {
+			score += 10;
+		}
+	}
+
+	// 3. Health: consecutive failures (tertiary factor)
+	score -= candKey.consecutiveFailures * 5;
+
+	return score;
 }
 
 function selectKeys(user: UserWithKeys, throttle: ApiKeyThrottleHelper, now: number, protocol: Protocol, reqModel: string, reqAlias?: string, provider?: string): CandidateKey[] {
@@ -287,25 +330,36 @@ function selectKeys(user: UserWithKeys, throttle: ApiKeyThrottleHelper, now: num
 
 	// TODO: shuffle keys
 
-	// Sort by consecutiveFailures
-	result.sort((a, b) => a.consecutiveFailures - b.consecutiveFailures);
+	// Optimization: Skip sorting if there's only one key
+	if (result.length <= 1) {
+		return result;
+	}
+
+	// Pre-calculate priority scores to avoid redundant calculations during sorting
+	for (const candKey of result) {
+		candKey.priorityScore = calculateKeyPriority(candKey, reqModel, protocol, user.modelSettings);
+	}
+
+	// Sort by pre-calculated priority score (higher score = higher priority)
+	result.sort((a, b) => b.priorityScore! - a.priorityScore!);
 
 	return result;
 }
 
 /**
- * Resolves user-defined model aliases to actual model names.
- * If the model name matches a user-defined alias, it returns the mapped model(s).
+ * Resolves user-defined model settings (aliases) to actual model names.
+ * If the model name has a defined alias, it returns the mapped model(s).
  * Otherwise, it returns the original model name.
  */
-function resolveUserModelAlias(modelName: string, userModelAliases: any): string {
-	if (!userModelAliases || typeof userModelAliases !== 'object') {
+function resolveUserModelAlias(modelName: string, userModelSettings: any): string {
+	if (!userModelSettings || typeof userModelSettings !== 'object') {
 		return modelName;
 	}
 
-	// Check if this model name is a user-defined alias
-	if (userModelAliases[modelName]) {
-		return userModelAliases[modelName];
+	// Check if this model has settings with an alias defined
+	const modelSetting = userModelSettings[modelName];
+	if (modelSetting?.alias) {
+		return modelSetting.alias;
 	}
 
 	return modelName;
@@ -323,7 +377,7 @@ async function getApiKeysAndHandleRequest(
 	// Resolve user-defined model aliases
 	// Split the models first, then resolve each one
 	const modelNames = reqModels.split(',');
-	const resolvedModels = modelNames.map(modelName => resolveUserModelAlias(modelName.trim(), user.modelAliases)).join(',');
+	const resolvedModels = modelNames.map(modelName => resolveUserModelAlias(modelName.trim(), user.modelSettings)).join(',');
 
 	const errors: Error[] = [];
 	for (const reqModel of resolvedModels.split(',')) {
