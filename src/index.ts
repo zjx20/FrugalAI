@@ -258,9 +258,9 @@ interface CandidateKey {
  * Higher score = higher priority.
  *
  * Priority factors (in order of importance):
- * 1. User-defined provider priorities (weight: ×100)
- * 2. Native protocol match (weight: +10)
- * 3. Health (consecutive failures, weight: -5 per failure)
+ * 1. Health (consecutive failures): A healthy key (0 failures) is always prioritized.
+ * 2. User-defined provider priorities.
+ * 3. Native protocol match.
  */
 function calculateKeyPriority(
 	candKey: CandidateKey,
@@ -268,29 +268,31 @@ function calculateKeyPriority(
 	requestProtocol: Protocol,
 	userModelSettings?: any
 ): number {
-	let score = 0;
+	// 1. Health (Primary Factor)
+	// A single failure incurs a large penalty, ensuring any healthy key is always
+	// prioritized over any unhealthy key, regardless of other factors.
+	let score = 0 - candKey.consecutiveFailures * 10000;
 
-	// 1. User-defined provider priorities (primary factor)
+	// 2. User-defined provider priorities (Secondary Factor)
 	if (userModelSettings && typeof userModelSettings === 'object') {
 		const modelSetting = userModelSettings[requestModel];
 		if (modelSetting?.providerPriorities) {
 			const providerPriority = modelSetting.providerPriorities[candKey.key.providerName];
 			if (providerPriority !== undefined) {
+				// Weight: ×100
 				score += providerPriority * 100;
 			}
 		}
 	}
 
-	// 2. Native protocol bonus (secondary factor)
+	// 3. Native protocol bonus (Tertiary Factor)
 	const nativeProtocols = candKey.key.provider.nativeProtocols as string[] | null;
 	if (nativeProtocols && Array.isArray(nativeProtocols)) {
 		if (nativeProtocols.includes(requestProtocol)) {
+			// Weight: +10
 			score += 10;
 		}
 	}
-
-	// 3. Health: consecutive failures (tertiary factor)
-	score -= candKey.consecutiveFailures * 5;
 
 	return score;
 }
