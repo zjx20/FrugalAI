@@ -1,6 +1,9 @@
 // This is your Prisma schema file,
 // learn more about it in the docs: https://pris.ly/d/prisma-schema
 
+// WARNING: Do not use `onDelete: Cascade`. It can cause unintentional data loss during schema migrations, especially when tables are rebuilt.
+//          See https://github.com/cloudflare/workers-sdk/issues/5438
+
 generator client {
   provider        = "prisma-client-js"
   output          = "../src/generated/prisma"
@@ -27,7 +30,7 @@ model AccessToken {
   token     String    @unique
   type      TokenType
   userId    Int
-  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Restrict)
   name      String?
   createdAt DateTime  @default(now())
 }
@@ -36,7 +39,7 @@ model ApiKey {
   id                Int      @id @default(autoincrement())
   provider          Provider @relation(fields: [providerName], references: [name])
   providerName      ProviderName
-  owner             User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  owner             User     @relation(fields: [ownerId], references: [id], onDelete: Restrict)
   ownerId           Int
   keyData           Json
   throttleData      Json

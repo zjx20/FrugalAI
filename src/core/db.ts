@@ -27,6 +27,9 @@ export class Database {
       where: { token },
       include: {
         keys: {
+          orderBy: {
+            providerName: 'asc',
+          },
           include: {
             provider: true,
           },
