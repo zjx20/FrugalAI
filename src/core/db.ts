@@ -285,6 +285,9 @@ export class Database {
       where: { id },
       include: {
         keys: {
+          orderBy: {
+            providerName: 'asc',
+          },
           include: {
             provider: true,
           },
